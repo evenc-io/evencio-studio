@@ -1,17 +1,18 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { AlertCircle, BarChart3, Clock, Grid2x2, List, Search, Star, Tag } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
-import { AssetCard } from "@/components/asset-library/asset-card"
-import { AssetDetailsPanel } from "@/components/asset-library/asset-details-panel"
-import { Logo } from "@/components/brand/logo"
-import { Button } from "@/components/ui/button"
-import { EmptyState } from "@/components/ui/empty-state"
-import { Input } from "@/components/ui/input"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { buildAssetSearchIndex, filterAssetSearchIndex } from "@/lib/asset-library/search-index"
-import { cn } from "@/lib/utils"
-import { useAssetLibraryStore } from "@/stores/asset-library-store"
-import type { AssetScope, AssetType } from "@/types/asset-library"
+import { AssetCard } from "../components/asset-library/asset-card"
+import { AssetDetailsPanel } from "../components/asset-library/asset-details-panel"
+import { AssetImportDialog } from "../components/asset-library/asset-import-dialog"
+import { Logo } from "../components/brand/logo"
+import { Button } from "../components/ui/button"
+import { EmptyState } from "../components/ui/empty-state"
+import { Input } from "../components/ui/input"
+import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs"
+import { buildAssetSearchIndex, filterAssetSearchIndex } from "../lib/asset-library/search-index"
+import { cn } from "../lib/utils"
+import { useAssetLibraryStore } from "../stores/asset-library-store"
+import type { AssetScope, AssetType } from "../types/asset-library"
 
 export const Route = createFileRoute("/library")({
 	component: AssetLibraryPage,
@@ -42,6 +43,7 @@ function AssetLibraryPage() {
 	const error = useAssetLibraryStore((state) => state.error)
 	const loadLibrary = useAssetLibraryStore((state) => state.loadLibrary)
 	const toggleFavorite = useAssetLibraryStore((state) => state.toggleFavorite)
+	const promoteAssetScope = useAssetLibraryStore((state) => state.promoteAssetScope)
 
 	const [searchTerm, setSearchTerm] = useState("")
 	const [typeFilters, setTypeFilters] = useState<AssetType[]>([])
@@ -186,6 +188,7 @@ function AssetLibraryPage() {
 							</p>
 						</div>
 						<div className="flex items-center gap-2">
+							<AssetImportDialog />
 							<span className="text-xs text-neutral-500">{filteredAssets.length} assets</span>
 							<div className="flex items-center gap-1 rounded-full border border-neutral-200 bg-white p-1">
 								<button
@@ -435,6 +438,7 @@ function AssetLibraryPage() {
 							tags={tagMap}
 							isFavorite={selectedAsset ? favoriteIds.has(selectedAsset.id) : false}
 							onToggleFavorite={toggleFavorite}
+							onPromoteScope={promoteAssetScope}
 						/>
 					</aside>
 				</div>

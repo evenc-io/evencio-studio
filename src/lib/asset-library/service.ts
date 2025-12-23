@@ -73,29 +73,29 @@ export function createAssetLibraryService(
 	const allowGlobalRead = context.allowGlobalRead ?? true
 	const allowGlobalWrite = context.allowGlobalWrite ?? false
 
-	const canAccessScope = (scope: AssetScopeRef, intent: "read" | "write") => {
+	const canAccessScope = (scope: AssetScopeRef, intent: "read" | "write"): boolean => {
 		if (!scopedAccessEnabled) return true
-		if (scope.scope === "global") {
-			return intent === "write" ? allowGlobalWrite : allowGlobalRead
+		switch (scope.scope) {
+			case "global":
+				return intent === "write" ? allowGlobalWrite : allowGlobalRead
+			case "org":
+				return Boolean(context.orgId && scope.orgId === context.orgId)
+			case "event":
+				return Boolean(
+					context.orgId &&
+						context.eventId &&
+						scope.orgId === context.orgId &&
+						scope.eventId === context.eventId,
+				)
+			case "personal":
+				return Boolean(
+					context.orgId &&
+						context.userId &&
+						scope.orgId === context.orgId &&
+						scope.ownerUserId === context.userId &&
+						(scope.eventId ? scope.eventId === context.eventId : true),
+				)
 		}
-		if (scope.scope === "org") {
-			return Boolean(context.orgId && scope.orgId === context.orgId)
-		}
-		if (scope.scope === "event") {
-			return Boolean(
-				context.orgId &&
-					context.eventId &&
-					scope.orgId === context.orgId &&
-					scope.eventId === context.eventId,
-			)
-		}
-		return Boolean(
-			context.orgId &&
-				context.userId &&
-				scope.orgId === context.orgId &&
-				scope.ownerUserId === context.userId &&
-				(scope.eventId ? scope.eventId === context.eventId : true),
-		)
 	}
 
 	const assertAccess = (scope: AssetScopeRef, intent: "read" | "write") => {
@@ -104,22 +104,25 @@ export function createAssetLibraryService(
 		}
 	}
 
-	const isSameScope = (left: AssetScopeRef, right: AssetScopeRef) => {
+	const isSameScope = (left: AssetScopeRef, right: AssetScopeRef): boolean => {
 		if (left.scope !== right.scope) return false
-		if (left.scope === "org") {
-			return left.orgId === right.orgId
+		switch (left.scope) {
+			case "global":
+				return true
+			case "org":
+				return left.orgId === (right as typeof left).orgId
+			case "event":
+				return (
+					left.orgId === (right as typeof left).orgId &&
+					left.eventId === (right as typeof left).eventId
+				)
+			case "personal":
+				return (
+					left.orgId === (right as typeof left).orgId &&
+					left.ownerUserId === (right as typeof left).ownerUserId &&
+					(left.eventId ?? null) === ((right as typeof left).eventId ?? null)
+				)
 		}
-		if (left.scope === "event") {
-			return left.orgId === right.orgId && left.eventId === right.eventId
-		}
-		if (left.scope === "personal") {
-			return (
-				left.orgId === right.orgId &&
-				left.ownerUserId === right.ownerUserId &&
-				(left.eventId ?? null) === (right.eventId ?? null)
-			)
-		}
-		return true
 	}
 
 	const resolveMetadata = (metadata: AssetMetadataInput, now: string): AssetMetadata => {
@@ -252,7 +255,7 @@ export function createAssetLibraryService(
 				}
 				const file = await resolveAssetFile(input.file)
 				oldStorageKey = existing.file.storageKey
-				updatedAsset = { ...updatedAsset, file }
+				updatedAsset = { ...updatedAsset, file } as Asset
 			}
 
 			if (input.snippet || input.defaultProps) {
@@ -263,7 +266,7 @@ export function createAssetLibraryService(
 					...updatedAsset,
 					snippet: input.snippet ?? existing.snippet,
 					defaultProps: input.defaultProps ?? existing.defaultProps,
-				}
+				} as Asset
 			}
 
 			const versionBump =
@@ -469,7 +472,7 @@ export function createAssetLibraryService(
 			)
 			const visible = new Set(
 				assets
-					.filter((asset): asset is Asset => Boolean(asset) && canAccessScope(asset.scope, "read"))
+					.filter((asset): asset is Asset => asset != null && canAccessScope(asset.scope, "read"))
 					.map((asset) => asset.id),
 			)
 			return favorites.filter((favorite) => visible.has(favorite.assetId))
