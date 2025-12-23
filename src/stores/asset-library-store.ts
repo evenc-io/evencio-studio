@@ -143,6 +143,21 @@ const ensureTagIds = async (tagNames: string[], scope: AssetScopeRef) => {
 	return tagIds
 }
 
+const resolvePromotedTagIds = async (tagIds: string[], targetScope: AssetScopeRef) => {
+	if (tagIds.length === 0) return []
+
+	const tags = await service.listTags()
+	const nameById = new Map(tags.map((tag) => [tag.id, tag.name]))
+	const missing = tagIds.filter((id) => !nameById.has(id))
+	if (missing.length > 0) {
+		throw new Error(`Missing tag metadata for promotion: ${missing.join(", ")}`)
+	}
+
+	const names = tagIds.map((id) => nameById.get(id)).filter((name): name is string => Boolean(name))
+
+	return ensureTagIds(names, targetScope)
+}
+
 async function seedAssetLibraryIfEmpty() {
 	const existingAssets = await registry.metadata.listAssets()
 	if (existingAssets.length > 0) return
@@ -346,8 +361,12 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 		}
 
 		const nextScope = resolvePromotionScope(existing.scope, targetScope)
+		const promotedTagIds = await resolvePromotedTagIds(existing.metadata.tags, nextScope)
 		const updated = await service.updateAsset(assetId, {
 			scope: nextScope,
+			metadata: {
+				tags: promotedTagIds,
+			},
 			changelog: `Promoted to ${targetScope}`,
 		})
 

@@ -109,13 +109,13 @@ export const buildSnippetHtmlDocument = (markup: string, config: RenderDetermini
 export const assertNoExternalUrls = (markup: string) => {
 	const urls = new Set<string>()
 	const attrPattern = /(src|href)=["'](https?:\/\/[^"']+)["']/gi
-	const cssPattern = /url\((https?:\/\/[^)]+)\)/gi
+	const cssPattern = /url\(\s*(["']?)(https?:\/\/[^"')\s]+)\1\s*\)/gi
 
 	for (let match = attrPattern.exec(markup); match; match = attrPattern.exec(markup)) {
 		urls.add(match[2])
 	}
 	for (let match = cssPattern.exec(markup); match; match = cssPattern.exec(markup)) {
-		urls.add(match[1])
+		urls.add(match[2])
 	}
 
 	if (urls.size > 0) {
