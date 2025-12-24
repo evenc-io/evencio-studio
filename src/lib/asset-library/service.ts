@@ -26,9 +26,11 @@ interface AssetLibraryServiceOptions {
 interface AssetLibraryService {
 	createAsset: (input: AssetCreateInput, changelog?: string | null) => Promise<Asset>
 	getAsset: (id: AssetId) => Promise<Asset | null>
-	listAssets: (query?: AssetListQuery) => Promise<Asset[]>
+	listAssets: (query?: AssetListQuery & { includeHidden?: boolean }) => Promise<Asset[]>
 	updateAsset: (id: AssetId, input: AssetUpdateInput) => Promise<Asset>
 	deleteAsset: (id: AssetId) => Promise<void>
+	hideAsset: (id: AssetId) => Promise<Asset>
+	unhideAsset: (id: AssetId) => Promise<Asset>
 
 	createTag: (input: { name: string; slug: string; scope: AssetScopeRef }) => Promise<AssetTag>
 	updateTag: (
@@ -187,6 +189,7 @@ export function createAssetLibraryService(
 					version: 1,
 					snippet: input.snippet,
 					defaultProps: input.defaultProps,
+					hidden: false,
 				}
 			} else {
 				const file = await resolveAssetFile(input.file)
@@ -197,6 +200,7 @@ export function createAssetLibraryService(
 					metadata,
 					version: 1,
 					file,
+					hidden: false,
 				}
 			}
 
@@ -213,9 +217,15 @@ export function createAssetLibraryService(
 
 		async listAssets(query) {
 			const results = await registry.metadata.listAssets(query)
-			return scopedAccessEnabled
+			let filtered = scopedAccessEnabled
 				? results.filter((asset) => canAccessScope(asset.scope, "read"))
 				: results
+
+			if (!query?.includeHidden) {
+				filtered = filtered.filter((asset) => !asset.hidden)
+			}
+
+			return filtered
 		},
 
 		async updateAsset(id, input) {
@@ -314,6 +324,32 @@ export function createAssetLibraryService(
 			if (asset.type !== "snippet") {
 				await registry.storage.delete(asset.file.storageKey)
 			}
+		},
+
+		async hideAsset(id) {
+			const asset = await registry.metadata.getAsset(id)
+			if (!asset) throw new Error(`Asset not found: ${id}`)
+			assertAccess(asset.scope, "write")
+			if (asset.hidden) return asset
+
+			const updated = { ...asset, hidden: true, version: asset.version + 1 }
+			await registry.metadata.upsertAsset(updated)
+			await recordVersion(asset.id, updated.version, "Asset hidden")
+
+			return updated
+		},
+
+		async unhideAsset(id) {
+			const asset = await registry.metadata.getAsset(id)
+			if (!asset) throw new Error(`Asset not found: ${id}`)
+			assertAccess(asset.scope, "write")
+			if (!asset.hidden) return asset
+
+			const updated = { ...asset, hidden: false, version: asset.version + 1 }
+			await registry.metadata.upsertAsset(updated)
+			await recordVersion(asset.id, updated.version, "Asset unhidden")
+
+			return updated
 		},
 
 		async createTag(input) {

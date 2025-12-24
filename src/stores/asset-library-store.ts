@@ -184,17 +184,21 @@ interface AssetLibraryState {
 	tags: AssetTag[]
 	collections: AssetCollection[]
 	favorites: AssetFavorite[]
+	includeHidden: boolean
 	isLoading: boolean
 	error: string | null
 }
 
 interface AssetLibraryActions {
-	syncLibrary: () => Promise<void>
-	loadLibrary: () => Promise<void>
+	syncLibrary: (includeHidden?: boolean) => Promise<void>
+	loadLibrary: (includeHidden?: boolean) => Promise<void>
 	toggleFavorite: (assetId: string) => Promise<void>
 	createAssetFromUpload: (input: AssetUploadInput) => Promise<Asset>
 	registerSnippetAsset: (input: SnippetRegistrationInput) => Promise<Asset>
 	promoteAssetScope: (assetId: string, targetScope: AssetScope) => Promise<Asset>
+	hideAsset: (assetId: string) => Promise<void>
+	unhideAsset: (assetId: string) => Promise<void>
+	deleteAsset: (assetId: string) => Promise<void>
 	clearError: () => void
 }
 
@@ -203,6 +207,7 @@ const initialState: AssetLibraryState = {
 	tags: [],
 	collections: [],
 	favorites: [],
+	includeHidden: false,
 	isLoading: false,
 	error: null,
 }
@@ -234,27 +239,36 @@ interface SnippetRegistrationInput {
 export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActions>((set, get) => ({
 	...initialState,
 
-	syncLibrary: async () => {
+	syncLibrary: async (includeHidden) => {
+		const resolvedIncludeHidden = includeHidden ?? get().includeHidden
 		const [assets, tags, collections, favorites] = await Promise.all([
-			service.listAssets(),
+			service.listAssets({ includeHidden: resolvedIncludeHidden }),
 			service.listTags(),
 			service.listCollections(),
 			service.listFavorites(),
 		])
-		set({ assets, tags, collections, favorites })
+		set({ assets, tags, collections, favorites, includeHidden: resolvedIncludeHidden })
 	},
 
-	loadLibrary: async () => {
-		set({ isLoading: true, error: null })
+	loadLibrary: async (includeHidden) => {
+		const resolvedIncludeHidden = includeHidden ?? get().includeHidden
+		set({ isLoading: true, error: null, includeHidden: resolvedIncludeHidden })
 		try {
 			await seedAssetLibraryIfEmpty()
 			const [assets, tags, collections, favorites] = await Promise.all([
-				service.listAssets(),
+				service.listAssets({ includeHidden: resolvedIncludeHidden }),
 				service.listTags(),
 				service.listCollections(),
 				service.listFavorites(),
 			])
-			set({ assets, tags, collections, favorites, isLoading: false })
+			set({
+				assets,
+				tags,
+				collections,
+				favorites,
+				isLoading: false,
+				includeHidden: resolvedIncludeHidden,
+			})
 		} catch (error) {
 			set({
 				error: error instanceof Error ? error.message : "Failed to load asset library",
@@ -382,4 +396,30 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	clearError: () => set({ error: null }),
+
+	hideAsset: async (assetId) => {
+		await service.hideAsset(assetId)
+		const { syncLibrary } = get()
+		if (syncLibrary) {
+			await syncLibrary()
+		}
+	},
+
+	unhideAsset: async (assetId) => {
+		await service.unhideAsset(assetId)
+		const { syncLibrary } = get()
+		if (syncLibrary) {
+			await syncLibrary()
+		}
+	},
+
+	deleteAsset: async (assetId) => {
+		await service.deleteAsset(assetId)
+		const { syncLibrary, assets } = get()
+		const nextAssets = assets.filter((asset) => asset.id !== assetId)
+		set({ assets: nextAssets })
+		if (syncLibrary) {
+			await syncLibrary()
+		}
+	},
 }))

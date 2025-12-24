@@ -1,4 +1,4 @@
-import { FileCode2, Image, Shapes, Star } from "lucide-react"
+import { Eye, FileCode2, Image, Shapes, Star, Trash2 } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -28,16 +28,22 @@ interface AssetDetailsPanelProps {
 	asset: Asset | null
 	tags: Map<string, AssetTag>
 	isFavorite: boolean
+	isHidden: boolean
 	onToggleFavorite: (assetId: string) => void
 	onPromoteScope: (assetId: string, targetScope: AssetScope) => Promise<Asset | undefined>
+	onUnhide: (assetId: string) => void
+	onDelete: (assetId: string) => void
 }
 
 export function AssetDetailsPanel({
 	asset,
 	tags,
 	isFavorite,
+	isHidden,
 	onToggleFavorite,
 	onPromoteScope,
+	onUnhide,
+	onDelete,
 }: AssetDetailsPanelProps) {
 	const promotionOptions = useMemo(() => {
 		if (!asset) return []
@@ -172,7 +178,14 @@ export function AssetDetailsPanel({
 				</div>
 			</div>
 
-			{promotionOptions.length > 0 && (
+			{isHidden && (
+				<div className="mt-4 flex items-center gap-2 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700">
+					<Eye className="h-4 w-4" />
+					<span>This asset is hidden.</span>
+				</div>
+			)}
+
+			{!isHidden && promotionOptions.length > 0 && (
 				<div className="mt-6 border-t border-neutral-200 pt-4">
 					<p className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-500">
 						Promote scope
@@ -209,6 +222,30 @@ export function AssetDetailsPanel({
 					)}
 				</div>
 			)}
+
+			<div className="mt-6 flex flex-wrap gap-2">
+				{isHidden && (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={() => asset && onUnhide(asset.id)}
+					>
+						Show asset
+					</Button>
+				)}
+				{!isHidden && (
+					<Button
+						type="button"
+						variant="destructive"
+						size="sm"
+						onClick={() => asset && onDelete(asset.id)}
+					>
+						<Trash2 className="h-4 w-4" />
+						Delete asset
+					</Button>
+				)}
+			</div>
 		</div>
 	)
 }
