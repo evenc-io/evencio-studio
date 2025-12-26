@@ -38,7 +38,23 @@ export const useEditorStore = create<EditorState & EditorActions>((set, get) => 
 	...initialState,
 
 	setCanvas: (canvas: Canvas | null, projectId?: string | null) =>
-		set({ canvas, canvasProjectId: projectId ?? null }),
+		set((state) => {
+			const nextProjectId = projectId ?? null
+			const shouldClear =
+				!canvas || state.canvas !== canvas || state.canvasProjectId !== nextProjectId
+
+			return {
+				canvas,
+				canvasProjectId: nextProjectId,
+				...(shouldClear
+					? {
+							selectedObjects: [],
+							hoveredObject: null,
+							hoveredLayerId: null,
+						}
+					: {}),
+			}
+		}),
 
 	setSelectedObjects: (objects: FabricObject[]) => set({ selectedObjects: objects }),
 
