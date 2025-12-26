@@ -16,7 +16,7 @@
 		"tanstack",
 		"bun"
 	],
-	"author": "Evencio <info@evenc.io>",
+	"author": "Yan Malinovskiy <yanmalinovskiy@evenc.io>",
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev --port 3010",
@@ -24,7 +24,7 @@
 		"start": "bun run .output/server/index.mjs",
 		"preview": "vite preview",
 		"test": "bun test",
-		"lint": "biome check .",
+		"lint": "biome check . && tsc --noEmit",
 		"lint:fix": "biome check --fix .",
 		"format": "biome format --write ."
 	},
