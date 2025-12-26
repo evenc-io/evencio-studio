@@ -341,16 +341,20 @@ export function useCanvasInspect({
 		// Initial check
 		updateSelected()
 
+		const handleSelectionCleared = () => {
+			setSelectedInfo(null)
+		}
+
 		// Listen for selection changes
 		canvas.on("selection:created", updateSelected)
 		canvas.on("selection:updated", updateSelected)
-		canvas.on("selection:cleared", () => setSelectedInfo(null))
+		canvas.on("selection:cleared", handleSelectionCleared)
 		canvas.on("object:modified", updateSelected)
 
 		return () => {
 			canvas.off("selection:created", updateSelected)
 			canvas.off("selection:updated", updateSelected)
-			canvas.off("selection:cleared")
+			canvas.off("selection:cleared", handleSelectionCleared)
 			canvas.off("object:modified", updateSelected)
 		}
 	}, [canvas, enabled, artboardWidth, artboardHeight, canvasPadding])
