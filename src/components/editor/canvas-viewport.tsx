@@ -1,3 +1,4 @@
+import type { Object as FabricObject, TPointerEventInfo } from "fabric"
 import {
 	CircleIcon,
 	Group as GroupIcon,
@@ -57,6 +58,7 @@ type ContextMenuState = {
 export function CanvasViewport({ children, className }: CanvasViewportProps) {
 	const containerRef = useRef<HTMLDivElement>(null)
 	const lastMousePos = useRef({ x: 0, y: 0 })
+	const lastContextMenuStamp = useRef<number | null>(null)
 	// Track if initial fit has been done to avoid re-fitting on every render
 	const hasInitialFit = useRef(false)
 	const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
@@ -88,12 +90,25 @@ export function CanvasViewport({ children, className }: CanvasViewportProps) {
 	const setIsMiddleMouseDown = useViewportStore((s) => s.setIsMiddleMouseDown)
 	const fitToScreen = useViewportStore((s) => s.fitToScreen)
 
-	const handleContextMenu = useCallback(
-		(e: React.MouseEvent) => {
+	const openContextMenu = useCallback(
+		(event: MouseEvent, explicitTarget?: FabricObject | null) => {
 			if (!canvas) return
-			e.preventDefault()
+			event.preventDefault()
 
-			const target = canvas.findTarget(e.nativeEvent)
+			if (lastContextMenuStamp.current === event.timeStamp) return
+			lastContextMenuStamp.current = event.timeStamp
+
+			const shouldInferTarget = typeof explicitTarget === "undefined"
+			const inferredTarget = shouldInferTarget
+				? (() => {
+						const targetInfo = canvas.findTarget(event) as unknown
+						if (targetInfo && typeof targetInfo === "object" && "target" in targetInfo) {
+							return (targetInfo as { target?: FabricObject | null }).target ?? null
+						}
+						return targetInfo as FabricObject | null
+					})()
+				: explicitTarget
+			const target = inferredTarget ?? null
 			const activeObjects = canvas.getActiveObjects()
 			const isTargetInSelection = target ? activeObjects.includes(target) : false
 
@@ -108,8 +123,8 @@ export function CanvasViewport({ children, className }: CanvasViewportProps) {
 
 			setContextMenu({
 				open: true,
-				x: e.clientX,
-				y: e.clientY,
+				x: event.clientX,
+				y: event.clientY,
 				selectionCount,
 				hasGroups,
 				mode: target ? "selection" : "canvas",
@@ -225,6 +240,39 @@ export function CanvasViewport({ children, className }: CanvasViewportProps) {
 			window.removeEventListener("keyup", handleKeyUp)
 		}
 	}, [setIsPanning, toggleInspectMode, togglePreviewMode])
+
+	// Fabric v7 fires right-clicks via mouse events; use them for the custom menu.
+	useEffect(() => {
+		if (!canvas) return
+
+		const handleFabricMouseDown = (options: TPointerEventInfo & { alreadySelected?: boolean }) => {
+			if (!("button" in options.e) || options.e.button !== 2) return
+			openContextMenu(options.e, options.target ?? null)
+		}
+
+		canvas.on("mouse:down", handleFabricMouseDown)
+		return () => {
+			canvas.off("mouse:down", handleFabricMouseDown)
+		}
+	}, [canvas, openContextMenu])
+
+	// Prevent the browser context menu when Fabric's hidden textarea is focused (IText).
+	useEffect(() => {
+		if (!canvas) return
+		const doc = canvas.getElement().ownerDocument
+
+		const handleTextareaContextMenu = (event: MouseEvent) => {
+			const target = event.target
+			if (target instanceof HTMLTextAreaElement && target.dataset.fabric === "textarea") {
+				event.preventDefault()
+			}
+		}
+
+		doc.addEventListener("contextmenu", handleTextareaContextMenu, true)
+		return () => {
+			doc.removeEventListener("contextmenu", handleTextareaContextMenu, true)
+		}
+	}, [canvas])
 
 	// Mouse wheel / trackpad handling (native listener for passive: false)
 	// - Mouse wheel = zoom
@@ -352,7 +400,6 @@ export function CanvasViewport({ children, className }: CanvasViewportProps) {
 			onMouseMove={handleMouseMove}
 			onMouseUp={handleMouseUp}
 			onMouseLeave={() => setIsMiddleMouseDown(false)}
-			onContextMenu={handleContextMenu}
 		>
 			{/* Canvas wrapper - Fabric.js handles viewport transform internally */}
 			<div className="pointer-events-auto">{children}</div>
