@@ -18,6 +18,8 @@ interface AutosaveState {
 	saveCount: number
 	lastThumbnailUpdate: number
 	saveQueue: Promise<void>
+	queueScheduled: boolean
+	queuedSave: AutosaveRequest | null
 }
 
 const state: AutosaveState = {
@@ -25,6 +27,8 @@ const state: AutosaveState = {
 	saveCount: 0,
 	lastThumbnailUpdate: 0,
 	saveQueue: Promise.resolve(),
+	queueScheduled: false,
+	queuedSave: null,
 }
 
 export interface AutosaveOptions {
@@ -32,6 +36,18 @@ export interface AutosaveOptions {
 	immediate?: boolean
 	/** Force thumbnail generation */
 	forceThumbnail?: boolean
+}
+
+interface ResetAutosaveOptions {
+	/** Keep any queued immediate save so it can drain */
+	preserveQueuedSave?: boolean
+}
+
+interface AutosaveRequest {
+	projectId: ProjectId
+	slideId: SlideId
+	canvas: Canvas
+	options?: AutosaveOptions
 }
 
 /**
@@ -50,43 +66,64 @@ export function scheduleAutosave(
 		state.timeoutId = null
 	}
 
-	const performSave = async () => {
+	const performSave = async (request: AutosaveRequest) => {
 		try {
-			const fabricJSON = serializeCanvas(canvas)
+			const fabricJSON = serializeCanvas(request.canvas)
 
 			// Determine if we should update thumbnail
 			const now = Date.now()
 			const shouldUpdateThumbnail =
-				options?.forceThumbnail ||
+				request.options?.forceThumbnail ||
 				state.saveCount >= THUMBNAIL_SAVE_COUNT ||
 				now - state.lastThumbnailUpdate > THUMBNAIL_UPDATE_INTERVAL_MS
 
 			let thumbnailDataUrl: string | null | undefined
 			if (shouldUpdateThumbnail) {
-				thumbnailDataUrl = generateThumbnail(canvas)
+				thumbnailDataUrl = generateThumbnail(request.canvas)
 				state.saveCount = 0
 				state.lastThumbnailUpdate = now
 			} else {
 				state.saveCount++
 			}
 
-			await saveCanvasState(projectId, slideId, fabricJSON, thumbnailDataUrl)
+			await saveCanvasState(request.projectId, request.slideId, fabricJSON, thumbnailDataUrl)
 		} catch (error) {
 			console.error("[Autosave] Failed to save:", error)
 		}
 	}
 
-	const enqueueSave = (task: () => Promise<void>) => {
-		state.saveQueue = state.saveQueue.then(task, task)
+	const drainQueue = async () => {
+		while (state.queuedSave) {
+			const nextSave = state.queuedSave
+			state.queuedSave = null
+			await performSave(nextSave)
+		}
+	}
+
+	const enqueueSave = (request: AutosaveRequest) => {
+		state.queuedSave = request
+
+		if (state.queueScheduled) {
+			return state.saveQueue
+		}
+
+		state.queueScheduled = true
+		state.saveQueue = state.saveQueue.then(drainQueue, drainQueue).finally(() => {
+			state.queueScheduled = false
+			if (state.queuedSave) {
+				enqueueSave(state.queuedSave)
+			}
+		})
+
 		return state.saveQueue
 	}
 
 	if (options?.immediate) {
-		return enqueueSave(performSave)
+		return enqueueSave({ projectId, slideId, canvas, options })
 	}
 
 	state.timeoutId = setTimeout(() => {
-		void enqueueSave(performSave)
+		void enqueueSave({ projectId, slideId, canvas, options })
 	}, AUTOSAVE_DEBOUNCE_MS)
 }
 
@@ -103,10 +140,13 @@ export function cancelAutosave(): void {
 /**
  * Reset autosave state (e.g., when switching slides).
  */
-export function resetAutosaveState(): void {
+export function resetAutosaveState(options?: ResetAutosaveOptions): void {
 	cancelAutosave()
 	state.saveCount = 0
 	state.lastThumbnailUpdate = 0
+	if (!options?.preserveQueuedSave) {
+		state.queuedSave = null
+	}
 }
 
 /**
