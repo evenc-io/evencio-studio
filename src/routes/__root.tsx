@@ -1,6 +1,4 @@
-import { TanStackDevtools } from "@tanstack/react-devtools"
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router"
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools"
 
 import appCss from "../styles.css?url"
 
@@ -55,17 +53,6 @@ function RootComponent() {
 			</head>
 			<body className="min-h-screen bg-background antialiased">
 				<Outlet />
-				<TanStackDevtools
-					config={{
-						position: "bottom-right",
-					}}
-					plugins={[
-						{
-							name: "TanStack Router",
-							render: <TanStackRouterDevtoolsPanel />,
-						},
-					]}
-				/>
 				<Scripts />
 			</body>
 		</html>
