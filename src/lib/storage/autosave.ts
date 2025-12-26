@@ -38,6 +38,11 @@ export interface AutosaveOptions {
 	forceThumbnail?: boolean
 }
 
+interface ResetAutosaveOptions {
+	/** Keep any queued immediate save so it can drain */
+	preserveQueuedSave?: boolean
+}
+
 interface AutosaveRequest {
 	projectId: ProjectId
 	slideId: SlideId
@@ -135,11 +140,13 @@ export function cancelAutosave(): void {
 /**
  * Reset autosave state (e.g., when switching slides).
  */
-export function resetAutosaveState(): void {
+export function resetAutosaveState(options?: ResetAutosaveOptions): void {
 	cancelAutosave()
 	state.saveCount = 0
 	state.lastThumbnailUpdate = 0
-	state.queuedSave = null
+	if (!options?.preserveQueuedSave) {
+		state.queuedSave = null
+	}
 }
 
 /**

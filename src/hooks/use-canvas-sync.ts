@@ -54,7 +54,7 @@ export function useCanvasSync() {
 				flushAutosave(projectIdRef.current, slideIdRef.current, canvas)
 				markSaved()
 			}
-			resetAutosaveState()
+			resetAutosaveState({ preserveQueuedSave: true })
 		}
 	}, [canvas, markSaved])
 }
