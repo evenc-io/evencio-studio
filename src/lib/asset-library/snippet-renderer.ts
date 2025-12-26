@@ -27,6 +27,7 @@ export type SnippetRenderErrorCode =
 	| "SNIPPET_PROPS_INVALID"
 	| "SNIPPET_EXTERNAL_URL"
 	| "SNIPPET_PNG_UNSUPPORTED"
+	| "SNIPPET_CUSTOM_UNSUPPORTED"
 
 export class SnippetRenderError extends Error {
 	code: SnippetRenderErrorCode
@@ -108,6 +109,13 @@ export async function renderSnippetToMarkup(
 	options?: SnippetRenderOptions,
 ): Promise<string> {
 	assertSnippetRenderingEnabled(options)
+	if (asset.snippet.source) {
+		throw new SnippetRenderError(
+			"SNIPPET_CUSTOM_UNSUPPORTED",
+			"Custom snippets cannot be rendered yet",
+			{ entry: asset.snippet.entry },
+		)
+	}
 	const determinism = options?.determinism ?? SNIPPET_RENDER_DETERMINISM
 	const entry = resolveSnippetComponent(asset)
 	const resolvedProps = resolveAndValidateProps(asset, props)
