@@ -5,6 +5,8 @@
  * Uses strict CSP and sandbox attributes to isolate untrusted code.
  */
 
+import { TRUSTED_FONT_PROVIDERS } from "./imports"
+
 const UNITLESS_CSS_PROPERTIES = new Set([
 	"opacity",
 	"zIndex",
@@ -83,6 +85,22 @@ body {
 }
 `
 
+const uniqueValues = (values: string[]) => Array.from(new Set(values.filter(Boolean)))
+
+const PREVIEW_FONT_LINKS = TRUSTED_FONT_PROVIDERS.map(
+	(provider) => `<link rel="stylesheet" href="${provider.cssUrl}">`,
+).join("\n")
+
+const PREVIEW_STYLE_SRC = uniqueValues([
+	"'unsafe-inline'",
+	...TRUSTED_FONT_PROVIDERS.map((provider) => provider.styleSrc),
+]).join(" ")
+
+const PREVIEW_FONT_SRC = uniqueValues([
+	"data:",
+	...TRUSTED_FONT_PROVIDERS.map((provider) => provider.fontSrc),
+]).join(" ")
+
 /**
  * Generate the srcdoc HTML for the preview iframe.
  *
@@ -113,8 +131,9 @@ export function generatePreviewSrcdoc(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src 'none'; script-src 'nonce-${nonce}'; style-src ${PREVIEW_STYLE_SRC}; img-src data: blob:; font-src ${PREVIEW_FONT_SRC};">
   <title>Snippet Preview</title>
+  ${PREVIEW_FONT_LINKS}
   <style>${PREVIEW_STYLES}</style>
   ${escapedTailwindCss ? `<style>${escapedTailwindCss}</style>` : ""}
 </head>
@@ -197,14 +216,16 @@ export function generatePreviewSrcdoc(
         }
       };
 
-      const renderNode = (node, parent) => {
+      const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
+
+      const renderNode = (node, parent, isSvgParent = false) => {
         if (node === null || node === undefined || node === false) return;
         if (typeof node === "string" || typeof node === "number") {
           parent.appendChild(document.createTextNode(String(node)));
           return;
         }
         if (Array.isArray(node)) {
-          node.forEach((child) => renderNode(child, parent));
+          node.forEach((child) => renderNode(child, parent, isSvgParent));
           return;
         }
         if (!node || typeof node !== "object" || !node.__snippetElement) {
@@ -213,21 +234,24 @@ export function generatePreviewSrcdoc(
 
         const { type, props } = node;
         if (type === React.Fragment) {
-          normalizeChildren(props?.children).forEach((child) => renderNode(child, parent));
+          normalizeChildren(props?.children).forEach((child) => renderNode(child, parent, isSvgParent));
           return;
         }
         if (typeof type === "function") {
           const rendered = type(props ?? {});
-          renderNode(rendered, parent);
+          renderNode(rendered, parent, isSvgParent);
           return;
         }
         if (typeof type !== "string") {
           throw new Error("Unsupported element type in snippet preview");
         }
 
-        const element = document.createElement(type);
+        const isSvgNode = isSvgParent || type === "svg";
+        const element = isSvgNode
+          ? document.createElementNS(SVG_NAMESPACE, type)
+          : document.createElement(type);
         applyProps(element, props);
-        normalizeChildren(props?.children).forEach((child) => renderNode(child, element));
+        normalizeChildren(props?.children).forEach((child) => renderNode(child, element, isSvgNode));
         parent.appendChild(element);
       };
 

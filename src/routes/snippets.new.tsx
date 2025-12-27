@@ -8,13 +8,24 @@ import {
 	FileBraces,
 	FileCode,
 	FolderOpen,
+	Grid,
+	Image,
 	Info,
+	Layers3,
+	LayoutTemplate,
 	Loader2,
+	PanelTop,
+	RectangleHorizontal,
+	Share2,
+	SlidersHorizontal,
+	Sparkles,
+	Type,
 	Upload,
 } from "lucide-react"
 import { nanoid } from "nanoid"
 import {
 	type ChangeEvent,
+	Fragment,
 	lazy,
 	Suspense,
 	useEffect,
@@ -43,6 +54,8 @@ import { snippetPropsSchema, snippetPropsSchemaDefinitionSchema } from "@/lib/as
 import { SCREEN_GUARD_DEFAULTS, useScreenGuard } from "@/lib/screen-guard"
 import { deriveSnippetPropsFromSource, useSnippetCompiler } from "@/lib/snippets"
 import { clampSnippetViewport, SNIPPET_DIMENSION_LIMITS } from "@/lib/snippets/constraints"
+import { SNIPPET_EXAMPLE_LABELS, SNIPPET_EXAMPLES } from "@/lib/snippets/examples"
+import { AVAILABLE_FONTS, TRUSTED_FONT_PROVIDERS } from "@/lib/snippets/imports"
 import { DEFAULT_PREVIEW_DIMENSIONS } from "@/lib/snippets/preview-runtime"
 import {
 	STARTER_SNIPPET_DEFAULT_PROPS,
@@ -243,6 +256,30 @@ const RESOLUTION_PRESETS: ResolutionPreset[] = [
 		})),
 ]
 
+const EXAMPLE_FILTERS: {
+	id: ExampleFilterId
+	label: string
+	icon: typeof Grid
+}[] = [
+	{ id: "all", label: "All", icon: Grid },
+	{ id: "hero", label: "Hero", icon: PanelTop },
+	{ id: "social", label: "Social", icon: Share2 },
+	{ id: "banner", label: "Banner", icon: RectangleHorizontal },
+	{ id: "logo", label: "Logo", icon: Sparkles },
+]
+
+const IMPORT_FILTERS: {
+	id: ImportFilterId
+	label: string
+	icon: typeof Grid
+}[] = [
+	{ id: "all", label: "All", icon: Grid },
+	{ id: "fonts", label: "Fonts", icon: Type },
+	{ id: "svgs", label: "SVGs", icon: Layers3 },
+	{ id: "icons", label: "Icons", icon: Sparkles },
+	{ id: "images", label: "Images", icon: Image },
+]
+
 const findPreset = (width: number, height: number) =>
 	RESOLUTION_PRESETS.find((preset) => preset.width === width && preset.height === height)
 
@@ -251,7 +288,14 @@ const PANEL_STATE_KEY = "evencio.snippets.new.panel-state"
 type PanelState = {
 	detailsCollapsed: boolean
 	explorerCollapsed: boolean
+	examplesOpen: boolean
+	importsOpen: boolean
 }
+
+type PanelSnapshot = Pick<PanelState, "detailsCollapsed" | "explorerCollapsed">
+
+type ExampleFilterId = "all" | keyof typeof SNIPPET_EXAMPLE_LABELS
+type ImportFilterId = "all" | "fonts" | "svgs" | "icons" | "images"
 
 const readPanelState = (): PanelState | null => {
 	if (typeof window === "undefined") return null
@@ -260,9 +304,41 @@ const readPanelState = (): PanelState | null => {
 		if (!raw) return null
 		const parsed = JSON.parse(raw) as Partial<PanelState>
 		if (!parsed || typeof parsed !== "object") return null
+		const keys = Object.keys(parsed)
+		const allowedKeys = new Set([
+			"detailsCollapsed",
+			"explorerCollapsed",
+			"examplesOpen",
+			"importsOpen",
+		])
+		if (keys.some((key) => !allowedKeys.has(key))) return null
+		if (typeof parsed.detailsCollapsed !== "boolean") return null
+		if (typeof parsed.explorerCollapsed !== "boolean") return null
+		const examplesOpen =
+			"examplesOpen" in parsed
+				? typeof parsed.examplesOpen === "boolean"
+					? parsed.examplesOpen
+					: null
+				: false
+		const importsOpen =
+			"importsOpen" in parsed
+				? typeof parsed.importsOpen === "boolean"
+					? parsed.importsOpen
+					: null
+				: false
+		if (examplesOpen === null || importsOpen === null) return null
+		if (examplesOpen && importsOpen) return null
+		if (parsed.detailsCollapsed && parsed.explorerCollapsed && examplesOpen && importsOpen) {
+			return null
+		}
+		if ((examplesOpen || importsOpen) && (!parsed.detailsCollapsed || !parsed.explorerCollapsed)) {
+			return null
+		}
 		return {
-			detailsCollapsed: Boolean(parsed.detailsCollapsed),
-			explorerCollapsed: Boolean(parsed.explorerCollapsed),
+			detailsCollapsed: parsed.detailsCollapsed,
+			explorerCollapsed: parsed.explorerCollapsed,
+			examplesOpen,
+			importsOpen,
 		}
 	} catch {
 		return null
@@ -271,6 +347,21 @@ const readPanelState = (): PanelState | null => {
 
 const writePanelState = (state: PanelState) => {
 	if (typeof window === "undefined") return
+	if (state.examplesOpen && state.importsOpen) return
+	if (
+		state.detailsCollapsed &&
+		state.explorerCollapsed &&
+		state.examplesOpen &&
+		state.importsOpen
+	) {
+		return
+	}
+	if (
+		(state.examplesOpen || state.importsOpen) &&
+		(!state.detailsCollapsed || !state.explorerCollapsed)
+	) {
+		return
+	}
 	try {
 		window.localStorage.setItem(PANEL_STATE_KEY, JSON.stringify(state))
 	} catch {
@@ -646,12 +737,20 @@ function NewSnippetPage() {
 	const [isCreating, setIsCreating] = useState(false)
 	const [useComponentDefaults, setUseComponentDefaults] = useState(false)
 	const [activeFile, setActiveFile] = useState<SnippetFileId>("source")
+	const [editorCollapsed, setEditorCollapsed] = useState(false)
 	const [detailsCollapsed, setDetailsCollapsed] = useState(false)
 	const [explorerCollapsed, setExplorerCollapsed] = useState(false)
+	const [examplesOpen, setExamplesOpen] = useState(false)
+	const [importsOpen, setImportsOpen] = useState(false)
+	const [activeExampleId, setActiveExampleId] = useState(() => SNIPPET_EXAMPLES[0]?.id ?? "")
+	const [isExamplePreviewActive, setIsExamplePreviewActive] = useState(false)
+	const [exampleFilters, setExampleFilters] = useState<ExampleFilterId[]>(["all"])
+	const [importsFilters, setImportsFilters] = useState<ImportFilterId[]>(["all"])
 	const [panelsHydrated, setPanelsHydrated] = useState(false)
 	const previewContainerRef = useRef<HTMLDivElement>(null)
 	const [isPreviewVisible, setIsPreviewVisible] = useState(true)
 	const screenGate = useScreenGuard()
+	const previousPanelsRef = useRef<PanelSnapshot | null>(null)
 	const [derivedProps, setDerivedProps] = useState<{
 		propsSchema: SnippetPropsSchemaDefinition
 		defaultProps: SnippetProps
@@ -667,6 +766,20 @@ function NewSnippetPage() {
 		(state) => state.registerCustomSnippetAsset,
 	)
 	const tagHints = useMemo(() => tags.map((tag) => tag.name), [tags])
+	const isFocusPanelOpen = examplesOpen || importsOpen
+	const filteredExamples = useMemo(() => {
+		if (exampleFilters.includes("all") || exampleFilters.length === 0) return SNIPPET_EXAMPLES
+		return SNIPPET_EXAMPLES.filter((example) =>
+			exampleFilters.includes(example.category as ExampleFilterId),
+		)
+	}, [exampleFilters])
+	const activeExample = useMemo(
+		() =>
+			filteredExamples.find((example) => example.id === activeExampleId) ??
+			filteredExamples[0] ??
+			null,
+		[activeExampleId, filteredExamples],
+	)
 	const form = useForm<CustomSnippetValues>({
 		resolver: zodResolver(customSnippetSchema),
 		mode: "onChange",
@@ -691,7 +804,7 @@ function NewSnippetPage() {
 	})
 	const viewportWidth = form.watch("viewportWidth")
 	const viewportHeight = form.watch("viewportHeight")
-	const previewDimensions = useMemo(
+	const snippetPreviewDimensions = useMemo(
 		() =>
 			clampSnippetViewport({
 				width: Number.isFinite(viewportWidth) ? viewportWidth : DEFAULT_PREVIEW_DIMENSIONS.width,
@@ -701,6 +814,122 @@ function NewSnippetPage() {
 			}),
 		[viewportHeight, viewportWidth],
 	)
+	const examplePreviewDimensions = activeExample?.viewport ?? DEFAULT_PREVIEW_DIMENSIONS
+	const examplePreviewProps = useMemo(() => activeExample?.previewProps ?? {}, [activeExample])
+	const exampleSource = activeExample?.source ?? ""
+	const importsSections = useMemo(() => {
+		const sections = [
+			{
+				id: "fonts",
+				group: "fonts",
+				node: (
+					<div className="space-y-2">
+						<p className="text-[10px] uppercase tracking-widest text-neutral-400">Fonts</p>
+						{AVAILABLE_FONTS.map((font) => (
+							<div key={font.id} className="rounded-md border border-neutral-200 bg-white p-3">
+								<div className="flex items-start justify-between gap-3">
+									<div>
+										<p className="text-sm font-medium text-neutral-900">{font.name}</p>
+										<p className="text-[11px] text-neutral-500">{font.usage}</p>
+									</div>
+									<span className="text-[10px] uppercase tracking-widest text-neutral-400">
+										{font.classNameLabel}
+									</span>
+								</div>
+								<p className={cn("mt-2 text-sm text-neutral-900", font.previewClassName)}>
+									Aa Bb 012
+								</p>
+							</div>
+						))}
+					</div>
+				),
+			},
+			{
+				id: "providers",
+				group: "fonts",
+				node: (
+					<div className="space-y-2">
+						<p className="text-[10px] uppercase tracking-widest text-neutral-400">
+							Trusted font providers
+						</p>
+						{TRUSTED_FONT_PROVIDERS.map((provider) => (
+							<div
+								key={provider.id}
+								className="rounded-md border border-neutral-200 bg-white px-3 py-2"
+							>
+								<div className="flex items-center justify-between gap-3">
+									<span className="text-sm font-medium text-neutral-900">{provider.label}</span>
+									<span className="text-[10px] uppercase tracking-widest text-neutral-400">
+										{provider.status === "active" ? "Active" : "Available"}
+									</span>
+								</div>
+							</div>
+						))}
+						<p className="text-[10px] text-neutral-400">
+							Only trusted providers are injected into preview.
+						</p>
+					</div>
+				),
+			},
+			{
+				id: "svgs",
+				group: "svgs",
+				node: (
+					<div className="space-y-2">
+						<p className="text-[10px] uppercase tracking-widest text-neutral-400">SVG assets</p>
+						<div className="rounded-md border border-neutral-200 bg-white p-3">
+							<div className="flex items-center justify-between gap-3">
+								<span className="text-sm font-medium text-neutral-900">Evencio mark</span>
+								<span className="text-[10px] uppercase tracking-widest text-neutral-400">SVG</span>
+							</div>
+							<div className="mt-3 flex items-center gap-3">
+								<Logo size="xs" showWordmark={false} />
+								<span className="text-[11px] text-neutral-500">Icon only</span>
+							</div>
+						</div>
+						<div className="rounded-md border border-neutral-200 bg-white p-3">
+							<div className="flex items-center justify-between gap-3">
+								<span className="text-sm font-medium text-neutral-900">Evencio lockup</span>
+								<span className="text-[10px] uppercase tracking-widest text-neutral-400">
+									SVG + type
+								</span>
+							</div>
+							<div className="mt-3">
+								<Logo size="xs" showWordmark />
+							</div>
+						</div>
+					</div>
+				),
+			},
+			{
+				id: "icons",
+				group: "icons",
+				node: (
+					<div className="space-y-2">
+						<p className="text-[10px] uppercase tracking-widest text-neutral-400">Icons</p>
+						<div className="rounded-md border border-dashed border-neutral-200 bg-white px-3 py-3">
+							<p className="text-sm text-neutral-500">Lucide icons (coming soon)</p>
+						</div>
+					</div>
+				),
+			},
+			{
+				id: "images",
+				group: "images",
+				node: (
+					<div className="space-y-2">
+						<p className="text-[10px] uppercase tracking-widest text-neutral-400">Images</p>
+						<div className="rounded-md border border-dashed border-neutral-200 bg-white px-3 py-3">
+							<p className="text-sm text-neutral-500">Image imports (coming soon)</p>
+						</div>
+					</div>
+				),
+			},
+		]
+
+		if (importsFilters.includes("all") || importsFilters.length === 0) return sections
+		return sections.filter((section) => importsFilters.includes(section.group as ImportFilterId))
+	}, [importsFilters])
 
 	useEffect(() => {
 		loadLibrary()
@@ -728,14 +957,77 @@ function NewSnippetPage() {
 		if (stored) {
 			setDetailsCollapsed(stored.detailsCollapsed)
 			setExplorerCollapsed(stored.explorerCollapsed)
+			setExamplesOpen(stored.examplesOpen)
+			setImportsOpen(stored.importsOpen)
 		}
 		setPanelsHydrated(true)
 	}, [])
 
 	useEffect(() => {
 		if (!panelsHydrated) return
-		writePanelState({ detailsCollapsed, explorerCollapsed })
-	}, [detailsCollapsed, explorerCollapsed, panelsHydrated])
+		writePanelState({ detailsCollapsed, explorerCollapsed, examplesOpen, importsOpen })
+	}, [detailsCollapsed, explorerCollapsed, examplesOpen, importsOpen, panelsHydrated])
+
+	useEffect(() => {
+		if (!examplesOpen) {
+			setIsExamplePreviewActive(false)
+		}
+	}, [examplesOpen])
+
+	useEffect(() => {
+		if (!filteredExamples.length) {
+			setActiveExampleId("")
+			return
+		}
+		const stillVisible = filteredExamples.some((example) => example.id === activeExampleId)
+		if (!stillVisible) {
+			setActiveExampleId(filteredExamples[0]?.id ?? "")
+		}
+	}, [activeExampleId, filteredExamples])
+
+	const openFocusPanel = (panel: "examples" | "imports") => {
+		if (!isFocusPanelOpen) {
+			previousPanelsRef.current = {
+				detailsCollapsed,
+				explorerCollapsed,
+			}
+		}
+		setDetailsCollapsed(true)
+		setExplorerCollapsed(true)
+		if (panel === "examples") {
+			setExamplesOpen(true)
+			setImportsOpen(false)
+		} else {
+			setImportsOpen(true)
+			setExamplesOpen(false)
+		}
+	}
+
+	const closeFocusPanels = () => {
+		setExamplesOpen(false)
+		setImportsOpen(false)
+		const previous = previousPanelsRef.current
+		if (previous) {
+			setDetailsCollapsed(previous.detailsCollapsed)
+			setExplorerCollapsed(previous.explorerCollapsed)
+		}
+	}
+
+	const toggleExamplesPanel = () => {
+		if (examplesOpen) {
+			closeFocusPanels()
+		} else {
+			openFocusPanel("examples")
+		}
+	}
+
+	const toggleImportsPanel = () => {
+		if (importsOpen) {
+			closeFocusPanels()
+		} else {
+			openFocusPanel("imports")
+		}
+	}
 
 	// Watch source for live compilation
 	const watchedSource = form.watch("source")
@@ -756,6 +1048,18 @@ function NewSnippetPage() {
 		enableTailwindCss: isPreviewVisible,
 	})
 	const previewProps = useComponentDefaults ? {} : parsedProps
+	const {
+		status: exampleCompileStatus,
+		compiledCode: exampleCompiledCode,
+		tailwindCss: exampleTailwindCss,
+		compile: compileExample,
+	} = useSnippetCompiler({
+		source: exampleSource,
+		defaultProps: examplePreviewProps,
+		debounceMs: 300,
+		autoCompile: isExamplePreviewActive,
+		enableTailwindCss: isExamplePreviewActive && isPreviewVisible,
+	})
 
 	useEffect(() => {
 		if (!isPreviewVisible) return
@@ -763,6 +1067,20 @@ function NewSnippetPage() {
 		if (tailwindCss !== null) return
 		void compile()
 	}, [compile, compileStatus, isPreviewVisible, tailwindCss])
+
+	useEffect(() => {
+		if (!isExamplePreviewActive) return
+		if (!isPreviewVisible) return
+		if (exampleCompileStatus !== "success") return
+		if (exampleTailwindCss !== null) return
+		void compileExample()
+	}, [
+		compileExample,
+		exampleCompileStatus,
+		exampleTailwindCss,
+		isExamplePreviewActive,
+		isPreviewVisible,
+	])
 
 	useEffect(() => {
 		let isCancelled = false
@@ -844,6 +1162,73 @@ function NewSnippetPage() {
 		reader.readAsText(file)
 	}
 
+	const applyExampleToEditor = () => {
+		if (!activeExample) return
+		form.setValue("source", activeExample.source, { shouldValidate: true })
+		form.setValue("viewportWidth", activeExample.viewport.width, { shouldValidate: true })
+		form.setValue("viewportHeight", activeExample.viewport.height, { shouldValidate: true })
+
+		const currentTitle = form.getValues("title")
+		if (!currentTitle.trim()) {
+			form.setValue("title", activeExample.title, { shouldValidate: true })
+		}
+
+		const currentDescription = form.getValues("description")
+		if (!currentDescription?.trim()) {
+			form.setValue("description", activeExample.description, { shouldValidate: true })
+		}
+
+		const currentTags = form.getValues("tags")
+		if (!currentTags.trim() && activeExample.tags.length > 0) {
+			form.setValue("tags", activeExample.tags.join(", "), { shouldValidate: true })
+		}
+
+		setActiveFile("source")
+		setIsExamplePreviewActive(false)
+	}
+
+	const handleExampleFilterClick = (
+		id: ExampleFilterId,
+		event: React.MouseEvent<HTMLButtonElement>,
+	) => {
+		if (id === "all") {
+			setExampleFilters(["all"])
+			return
+		}
+		const isMulti = event.shiftKey || event.metaKey || event.ctrlKey
+		if (!isMulti) {
+			setExampleFilters([id])
+			return
+		}
+		setExampleFilters((prev) => {
+			const withoutAll = prev.filter((entry) => entry !== "all")
+			const hasId = withoutAll.includes(id)
+			const next = hasId ? withoutAll.filter((entry) => entry !== id) : [...withoutAll, id]
+			return next.length > 0 ? next : ["all"]
+		})
+	}
+
+	const handleImportsFilterClick = (
+		id: ImportFilterId,
+		event: React.MouseEvent<HTMLButtonElement>,
+	) => {
+		if (id === "all") {
+			setImportsFilters(["all"])
+			return
+		}
+		const isMulti = event.shiftKey || event.metaKey || event.ctrlKey
+		if (!isMulti) {
+			setImportsFilters([id])
+			return
+		}
+		setImportsFilters((prev) => {
+			const withoutAll = prev.filter((entry) => entry !== "all")
+			const hasId = withoutAll.includes(id)
+			const next = hasId ? withoutAll.filter((entry) => entry !== id) : [...withoutAll, id]
+			return next.length > 0 ? next : ["all"]
+		})
+	}
+
 	const handleSubmit = async (values: CustomSnippetValues) => {
 		setError(null)
 		setIsCreating(true)
@@ -878,6 +1263,49 @@ function NewSnippetPage() {
 			setIsCreating(false)
 		}
 	}
+
+	const isExamplePreviewing = Boolean(isExamplePreviewActive && activeExample)
+	const previewCompiledCode = isExamplePreviewing ? exampleCompiledCode : compiledCode
+	const previewPropsToUse = isExamplePreviewing ? examplePreviewProps : previewProps
+	const previewTailwindCss = isExamplePreviewing ? exampleTailwindCss : tailwindCss
+	const previewDimensionsToUse = isExamplePreviewing
+		? examplePreviewDimensions
+		: snippetPreviewDimensions
+	const previewHeaderActions = isExamplePreviewing ? (
+		<>
+			<span className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-neutral-500">
+				Example
+			</span>
+			<span className="max-w-[140px] truncate text-[11px] text-neutral-500">
+				{activeExample?.title}
+			</span>
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				className="h-6 px-2 text-[11px]"
+				onClick={() => setIsExamplePreviewActive(false)}
+			>
+				Back to snippet
+			</Button>
+		</>
+	) : (
+		<Button
+			type="button"
+			variant="ghost"
+			size="sm"
+			className={cn(
+				"h-6 px-2 text-[11px]",
+				useComponentDefaults
+					? "bg-neutral-900 text-white hover:bg-neutral-800"
+					: "text-neutral-500 hover:text-neutral-700",
+			)}
+			aria-pressed={useComponentDefaults}
+			onClick={() => setUseComponentDefaults((prev) => !prev)}
+		>
+			Preview: {useComponentDefaults ? "Component defaults" : "Default props"}
+		</Button>
+	)
 
 	if (screenGate.status !== "supported") {
 		const isChecking = screenGate.status === "unknown"
@@ -960,52 +1388,218 @@ function NewSnippetPage() {
 			{/* Main content - fills remaining height */}
 			<Form {...form}>
 				<form className="flex flex-1 overflow-hidden" onSubmit={form.handleSubmit(handleSubmit)}>
-					<div className="w-12 shrink-0 border-r border-neutral-200 bg-neutral-50">
-						<div className="flex flex-col items-center gap-1 py-2">
+					<div className="w-14 shrink-0 border-r border-neutral-200 bg-neutral-50">
+						<div className="relative flex h-full flex-col items-center py-2">
 							<Button
 								type="button"
 								variant="ghost"
 								size="icon"
 								className={cn(
-									"h-9 w-9",
-									!detailsCollapsed && "border border-neutral-200 bg-white text-neutral-900",
+									"mb-2 h-10 w-10",
+									!editorCollapsed && "border border-neutral-200 bg-white text-neutral-900",
 								)}
-								onClick={() => setDetailsCollapsed((prev) => !prev)}
-								aria-pressed={!detailsCollapsed}
-								aria-label={
-									detailsCollapsed ? "Show snippet details panel" : "Hide snippet details panel"
-								}
-								title="Snippet details"
+								onClick={() => setEditorCollapsed((prev) => !prev)}
+								aria-pressed={!editorCollapsed}
+								aria-label={editorCollapsed ? "Show code editor" : "Hide code editor"}
+								title="Editor"
 							>
-								<Info className="h-4 w-4" />
+								<FileCode className="h-4 w-4" />
 							</Button>
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon"
+							<div
 								className={cn(
-									"h-9 w-9",
-									!explorerCollapsed && "border border-neutral-200 bg-white text-neutral-900",
+									"flex flex-col items-center gap-1 transition-all duration-200 ease-out",
+									isFocusPanelOpen
+										? "pointer-events-none -translate-y-2 opacity-0"
+										: "translate-y-0 opacity-100",
 								)}
-								onClick={() => setExplorerCollapsed((prev) => !prev)}
-								aria-pressed={!explorerCollapsed}
-								aria-label={explorerCollapsed ? "Show explorer panel" : "Hide explorer panel"}
-								title="Explorer"
 							>
-								<FolderOpen className="h-4 w-4" />
-							</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className={cn(
+										"h-10 w-10",
+										!detailsCollapsed && "border border-neutral-200 bg-white text-neutral-900",
+									)}
+									onClick={() => setDetailsCollapsed((prev) => !prev)}
+									aria-pressed={!detailsCollapsed}
+									aria-label={
+										detailsCollapsed ? "Show snippet details panel" : "Hide snippet details panel"
+									}
+									title="Snippet details"
+								>
+									<Info className="h-4 w-4" />
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className={cn(
+										"h-10 w-10",
+										!explorerCollapsed && "border border-neutral-200 bg-white text-neutral-900",
+									)}
+									onClick={() => setExplorerCollapsed((prev) => !prev)}
+									aria-pressed={!explorerCollapsed}
+									aria-label={explorerCollapsed ? "Show explorer panel" : "Hide explorer panel"}
+									title="Explorer"
+								>
+									<FolderOpen className="h-4 w-4" />
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className={cn(
+										"h-10 w-10",
+										examplesOpen && "border border-neutral-200 bg-white text-neutral-900",
+									)}
+									onClick={toggleExamplesPanel}
+									aria-pressed={examplesOpen}
+									aria-label={examplesOpen ? "Hide examples panel" : "Show examples panel"}
+									title="Examples"
+								>
+									<LayoutTemplate className="h-4 w-4" />
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="icon"
+									className={cn(
+										"h-10 w-10",
+										importsOpen && "border border-neutral-200 bg-white text-neutral-900",
+									)}
+									onClick={toggleImportsPanel}
+									aria-pressed={importsOpen}
+									aria-label={importsOpen ? "Hide imports panel" : "Show imports panel"}
+									title="Imports"
+								>
+									<SlidersHorizontal className="h-4 w-4" />
+								</Button>
+							</div>
+
+							<div
+								className={cn(
+									"absolute top-2 left-0 right-0 flex flex-col items-center transition-all duration-200 ease-out",
+									examplesOpen
+										? "translate-y-0 opacity-100"
+										: "pointer-events-none -translate-y-2 opacity-0",
+								)}
+							>
+								<div className="flex w-full flex-col items-center">
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="h-10 w-10 border border-neutral-200 bg-white text-neutral-900"
+										onClick={toggleExamplesPanel}
+										aria-pressed={examplesOpen}
+										aria-label="Hide examples panel"
+										title="Examples"
+									>
+										<LayoutTemplate className="h-4 w-4" />
+									</Button>
+									<div className="mt-2 w-full border-t border-neutral-200 pt-2">
+										<div className="flex flex-col items-center gap-1 px-1">
+											<span className="text-[10px] uppercase tracking-[0.24em] text-neutral-400">
+												Filter
+											</span>
+											<div className="flex w-full flex-col items-center gap-1 px-1 group">
+												{EXAMPLE_FILTERS.map((filter) => {
+													const isActive = exampleFilters.includes(filter.id)
+													return (
+														<button
+															key={filter.id}
+															type="button"
+															onClick={(event) => handleExampleFilterClick(filter.id, event)}
+															className={cn(
+																"w-full rounded-md border px-1.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] transition-colors",
+																isActive
+																	? "border-neutral-200 bg-white text-neutral-900"
+																	: "border-transparent text-neutral-400 hover:bg-neutral-100",
+															)}
+															title={`Filter: ${filter.label}`}
+															aria-label={`Filter: ${filter.label}`}
+														>
+															<filter.icon className="mx-auto h-4 w-4" />
+														</button>
+													)
+												})}
+												<p className="pt-1 text-[9px] text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100">
+													Shift+click to multi-select
+												</p>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+
+							<div
+								className={cn(
+									"absolute top-2 left-0 right-0 flex flex-col items-center transition-all duration-200 ease-out",
+									importsOpen
+										? "translate-y-0 opacity-100"
+										: "pointer-events-none -translate-y-2 opacity-0",
+								)}
+							>
+								<div className="flex w-full flex-col items-center">
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										className="h-10 w-10 border border-neutral-200 bg-white text-neutral-900"
+										onClick={toggleImportsPanel}
+										aria-pressed={importsOpen}
+										aria-label="Hide imports panel"
+										title="Imports"
+									>
+										<SlidersHorizontal className="h-4 w-4" />
+									</Button>
+									<div className="mt-2 w-full border-t border-neutral-200 pt-2">
+										<div className="flex flex-col items-center gap-1 px-1">
+											<span className="text-[10px] uppercase tracking-[0.24em] text-neutral-400">
+												Filter
+											</span>
+											<div className="flex w-full flex-col items-center gap-1 px-1 group">
+												{IMPORT_FILTERS.map((filter) => {
+													const isActive = importsFilters.includes(filter.id)
+													return (
+														<button
+															key={filter.id}
+															type="button"
+															onClick={(event) => handleImportsFilterClick(filter.id, event)}
+															className={cn(
+																"w-full rounded-md border px-1.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.24em] transition-colors",
+																isActive
+																	? "border-neutral-200 bg-white text-neutral-900"
+																	: "border-transparent text-neutral-400 hover:bg-neutral-100",
+															)}
+															title={`Filter: ${filter.label}`}
+															aria-label={`Filter: ${filter.label}`}
+														>
+															<filter.icon className="mx-auto h-4 w-4" />
+														</button>
+													)
+												})}
+												<p className="pt-1 text-[9px] text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100">
+													Shift+click to multi-select
+												</p>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
 						</div>
 					</div>
 					{/* Left panel - scrollable sidebar */}
 					<aside
 						className={cn(
 							"shrink-0 overflow-hidden bg-neutral-50 transition-all duration-200",
-							detailsCollapsed ? "w-0 border-r-0" : "w-72 border-r border-neutral-200",
+							detailsCollapsed ? "w-0 border-r-0" : "w-[19rem] border-r border-neutral-200",
 						)}
 					>
 						<div
 							className={cn(
-								"flex h-full w-72 flex-col transition-opacity duration-200",
+								"flex h-full w-[19rem] flex-col transition-opacity duration-200",
 								detailsCollapsed ? "pointer-events-none opacity-0" : "opacity-100",
 							)}
 							aria-hidden={detailsCollapsed}
@@ -1029,10 +1623,150 @@ function NewSnippetPage() {
 						</div>
 					</aside>
 
+					{/* Examples panel */}
+					<aside
+						className={cn(
+							"shrink-0 overflow-hidden bg-neutral-50 transition-all duration-200",
+							examplesOpen ? "w-[21rem] border-r border-neutral-200" : "w-0 border-r-0",
+						)}
+					>
+						<div
+							className={cn(
+								"flex h-full w-[21rem] flex-col transition-opacity duration-200",
+								examplesOpen ? "opacity-100" : "pointer-events-none opacity-0",
+							)}
+							aria-hidden={!examplesOpen}
+						>
+							{examplesOpen && (
+								<>
+									<div className="px-4 pb-2 pt-3 text-[11px] font-semibold uppercase tracking-widest text-neutral-400">
+										Evencio examples
+									</div>
+									<div className="flex-1 overflow-y-auto px-3 pb-3">
+										<div className="space-y-2">
+											{filteredExamples.map((example) => {
+												const isActive = activeExample?.id === example.id
+												const isPreviewing = isExamplePreviewActive && isActive
+												return (
+													<button
+														key={example.id}
+														type="button"
+														onClick={() => setActiveExampleId(example.id)}
+														className={cn(
+															"w-full rounded-md border px-3 py-2 text-left transition-colors",
+															isActive
+																? "border-neutral-900 bg-white"
+																: "border-transparent text-neutral-600 hover:bg-neutral-100",
+														)}
+													>
+														<div className="flex items-center justify-between">
+															<span className="text-[10px] uppercase tracking-widest text-neutral-400">
+																{SNIPPET_EXAMPLE_LABELS[example.category]}
+															</span>
+															<span className="text-[10px] text-neutral-400">
+																{example.viewport.width}×{example.viewport.height}
+															</span>
+														</div>
+														<p className="mt-1 text-sm font-medium text-neutral-900">
+															{example.title}
+														</p>
+														<p className="mt-1 text-[11px] text-neutral-500">
+															{example.description}
+														</p>
+														{isPreviewing && (
+															<span className="mt-2 inline-flex items-center text-[10px] font-semibold uppercase tracking-widest text-emerald-600">
+																Previewing
+															</span>
+														)}
+													</button>
+												)
+											})}
+										</div>
+									</div>
+									<div className="border-t border-neutral-200 bg-white/70 px-3 py-3">
+										<div className="space-y-2">
+											<div>
+												<p className="text-[10px] uppercase tracking-widest text-neutral-400">
+													Selected
+												</p>
+												<p className="text-sm font-medium text-neutral-900">
+													{activeExample?.title ?? "Select an example"}
+												</p>
+												<p className="text-[11px] text-neutral-500">
+													{activeExample?.description ?? "Browse curated Evencio templates."}
+												</p>
+											</div>
+											<div className="flex gap-2">
+												<Button
+													type="button"
+													variant="outline"
+													size="sm"
+													onClick={() => setIsExamplePreviewActive((prev) => !prev)}
+													disabled={!activeExample}
+												>
+													{isExamplePreviewActive ? "Exit preview" : "Preview example"}
+												</Button>
+												<Button
+													type="button"
+													size="sm"
+													onClick={applyExampleToEditor}
+													disabled={!activeExample}
+												>
+													Use in editor
+												</Button>
+											</div>
+											<p className="text-[10px] text-neutral-400">
+												Preview examples without changing your current snippet.
+											</p>
+										</div>
+									</div>
+								</>
+							)}
+						</div>
+					</aside>
+
+					{/* Imports panel */}
+					<aside
+						className={cn(
+							"shrink-0 overflow-hidden bg-neutral-50 transition-all duration-200",
+							importsOpen ? "w-[21rem] border-r border-neutral-200" : "w-0 border-r-0",
+						)}
+					>
+						<div
+							className={cn(
+								"flex h-full w-[21rem] flex-col transition-opacity duration-200",
+								importsOpen ? "opacity-100" : "pointer-events-none opacity-0",
+							)}
+							aria-hidden={!importsOpen}
+						>
+							{importsOpen && (
+								<>
+									<div className="px-4 pb-2 pt-3 text-[11px] font-semibold uppercase tracking-widest text-neutral-400">
+										Imports
+									</div>
+									<div className="flex-1 space-y-6 overflow-y-auto px-3 pb-3">
+										{importsSections.map((section) => (
+											<Fragment key={section.id}>{section.node}</Fragment>
+										))}
+									</div>
+								</>
+							)}
+						</div>
+					</aside>
+
 					{/* Center - Editor and Preview split */}
 					<section className="flex flex-1 overflow-hidden">
 						{/* Editor panel - 60% width */}
-						<div className="flex w-[60%] overflow-hidden border-r border-neutral-200">
+						<div
+							className={cn(
+								"flex overflow-hidden border-r border-neutral-200 transition-all duration-200",
+								editorCollapsed
+									? explorerCollapsed
+										? "w-0 border-r-0"
+										: "w-52"
+									: "w-[60%]",
+							)}
+						>
 							{/* Explorer */}
 							<div
 								className={cn(
@@ -1076,7 +1810,12 @@ function NewSnippetPage() {
 							</div>
 
 							{/* Editor area */}
-							<div className="flex flex-1 flex-col overflow-hidden">
+							<div
+								className={cn(
+									"flex flex-1 flex-col overflow-hidden transition-opacity duration-200",
+									editorCollapsed ? "pointer-events-none opacity-0" : "opacity-100",
+								)}
+							>
 								{/* Tabs */}
 								<div className="flex h-9 shrink-0 items-center justify-between border-b border-neutral-200 bg-neutral-50 px-2">
 									<div className="flex items-center gap-1">
@@ -1250,30 +1989,20 @@ function NewSnippetPage() {
 						</div>
 
 						{/* Preview panel - 40% width */}
-						<div ref={previewContainerRef} className="flex w-[40%] flex-col overflow-hidden">
+						<div
+							ref={previewContainerRef}
+							className={cn(
+								"flex flex-col overflow-hidden transition-all duration-200",
+								editorCollapsed ? "flex-1" : "w-[40%]",
+							)}
+						>
 							<SnippetPreview
-								compiledCode={compiledCode}
-								props={previewProps}
-								tailwindCss={tailwindCss}
-								dimensions={previewDimensions}
+								compiledCode={previewCompiledCode}
+								props={previewPropsToUse}
+								tailwindCss={previewTailwindCss}
+								dimensions={previewDimensionsToUse}
 								className="h-full"
-								headerActions={
-									<Button
-										type="button"
-										variant="ghost"
-										size="sm"
-										className={cn(
-											"h-6 px-2 text-[11px]",
-											useComponentDefaults
-												? "bg-neutral-900 text-white hover:bg-neutral-800"
-												: "text-neutral-500 hover:text-neutral-700",
-										)}
-										aria-pressed={useComponentDefaults}
-										onClick={() => setUseComponentDefaults((prev) => !prev)}
-									>
-										Preview: {useComponentDefaults ? "Component defaults" : "Default props"}
-									</Button>
-								}
+								headerActions={previewHeaderActions}
 							/>
 						</div>
 					</section>
