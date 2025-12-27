@@ -8,6 +8,8 @@ interface SnippetPreviewHeaderActionsProps {
 	useComponentDefaults: boolean
 	onExitExamplePreview: () => void
 	onToggleDefaults: () => void
+	inspectEnabled?: boolean
+	onToggleInspect?: () => void
 }
 
 export function SnippetPreviewHeaderActions({
@@ -17,6 +19,8 @@ export function SnippetPreviewHeaderActions({
 	useComponentDefaults,
 	onExitExamplePreview,
 	onToggleDefaults,
+	inspectEnabled = false,
+	onToggleInspect,
 }: SnippetPreviewHeaderActionsProps) {
 	if (isExamplePreviewing) {
 		return (
@@ -45,6 +49,23 @@ export function SnippetPreviewHeaderActions({
 			<span className="max-w-[140px] truncate text-[11px] text-neutral-500">
 				Component: {activeComponentLabel}
 			</span>
+			{onToggleInspect && (
+				<Button
+					type="button"
+					variant="ghost"
+					size="sm"
+					className={cn(
+						"h-6 px-2 text-[11px]",
+						inspectEnabled
+							? "bg-neutral-900 text-white hover:bg-neutral-800"
+							: "text-neutral-500 hover:text-neutral-700",
+					)}
+					aria-pressed={inspectEnabled}
+					onClick={onToggleInspect}
+				>
+					Inspect
+				</Button>
+			)}
 			<Button
 				type="button"
 				variant="ghost"

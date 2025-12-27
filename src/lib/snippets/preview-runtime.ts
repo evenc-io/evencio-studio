@@ -23,11 +23,18 @@ export interface PreviewDimensions {
 	height: number
 }
 
-export interface PreviewMessage {
-	type: "render-success" | "render-error" | "ready"
-	error?: string
-	stack?: string
+export interface PreviewSourceLocation {
+	fileName?: string
+	lineNumber?: number
+	columnNumber?: number
 }
+
+export type PreviewMessage =
+	| { type: "ready" }
+	| { type: "render-success" }
+	| { type: "render-error"; error?: string; stack?: string }
+	| { type: "inspect-hover"; source: PreviewSourceLocation | null }
+	| { type: "inspect-select"; source: PreviewSourceLocation | null }
 
 /**
  * Minimal CSS reset and container styles for the preview iframe.
@@ -174,6 +181,8 @@ export function generatePreviewSrcdoc(
         };
       })();
 
+      const elementSourceMap = new WeakMap();
+
       const unitlessStyles = new Set(${JSON.stringify(Array.from(UNITLESS_CSS_PROPERTIES))});
       const isUnitlessStyle = (key) => unitlessStyles.has(key);
 
@@ -187,6 +196,7 @@ export function generatePreviewSrcdoc(
         if (!props) return;
         for (const [key, value] of Object.entries(props)) {
           if (key === "children" || value === null || value === undefined) continue;
+          if (key.startsWith("__")) continue;
           if (key === "className") {
             element.setAttribute("class", String(value));
             continue;
@@ -233,6 +243,7 @@ export function generatePreviewSrcdoc(
         }
 
         const { type, props } = node;
+        const sourceInfo = props && typeof props === "object" ? props.__source : null;
         if (type === React.Fragment) {
           normalizeChildren(props?.children).forEach((child) => renderNode(child, parent, isSvgParent));
           return;
@@ -251,11 +262,213 @@ export function generatePreviewSrcdoc(
           ? document.createElementNS(SVG_NAMESPACE, type)
           : document.createElement(type);
         applyProps(element, props);
+        if (sourceInfo && typeof sourceInfo === "object") {
+          elementSourceMap.set(element, sourceInfo);
+        }
         normalizeChildren(props?.children).forEach((child) => renderNode(child, element, isSvgNode));
         parent.appendChild(element);
       };
 
       window.React = React;
+
+      const INSPECT_HOVER = "#FF0066";
+      const INSPECT_SELECTED = "#0066FF";
+      const INSPECT_LABEL_BG = "#FFFFFF";
+      const INSPECT_LABEL_TEXT = "#1E1E1E";
+      const resolveInspectableTarget = (target) => {
+        const container = document.getElementById("snippet-container");
+        if (!container) return null;
+        if (!(target instanceof Element)) return null;
+        if (!container.contains(target)) return null;
+
+        let current = target;
+        while (current && current !== container) {
+          if (elementSourceMap.has(current)) return current;
+          current = current.parentElement;
+        }
+
+        return null;
+      };
+
+      const createInspectOverlay = () => {
+        const overlay = document.createElement("div");
+        overlay.style.position = "fixed";
+        overlay.style.inset = "0";
+        overlay.style.pointerEvents = "none";
+        overlay.style.zIndex = "9999";
+        overlay.style.display = "none";
+
+        const createBox = (color) => {
+          const box = document.createElement("div");
+          box.style.position = "fixed";
+          box.style.border = "2px solid " + color;
+          box.style.boxSizing = "border-box";
+          box.style.pointerEvents = "none";
+          box.style.display = "none";
+          return box;
+        };
+
+        const createLabel = (color) => {
+          const label = document.createElement("div");
+          label.style.position = "fixed";
+          label.style.padding = "2px 6px";
+          label.style.fontSize = "11px";
+          label.style.fontFamily =
+            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+          label.style.background = INSPECT_LABEL_BG;
+          label.style.color = INSPECT_LABEL_TEXT;
+          label.style.border = "1px solid " + color;
+          label.style.borderRadius = "2px";
+          label.style.pointerEvents = "none";
+          label.style.whiteSpace = "nowrap";
+          label.style.display = "none";
+          return label;
+        };
+
+        const hoverBox = createBox(INSPECT_HOVER);
+        const hoverLabel = createLabel(INSPECT_HOVER);
+        const selectedBox = createBox(INSPECT_SELECTED);
+        const selectedLabel = createLabel(INSPECT_SELECTED);
+
+        overlay.appendChild(selectedBox);
+        overlay.appendChild(selectedLabel);
+        overlay.appendChild(hoverBox);
+        overlay.appendChild(hoverLabel);
+        document.body.appendChild(overlay);
+
+        const updateBox = (box, label, target, prefix) => {
+          if (!target) {
+            box.style.display = "none";
+            label.style.display = "none";
+            return;
+          }
+          const rect = target.getBoundingClientRect();
+          const width = Math.max(0, Math.round(rect.width));
+          const height = Math.max(0, Math.round(rect.height));
+          const tag = target.tagName ? target.tagName.toLowerCase() : "element";
+          const prefixText = prefix ? prefix + " - " : "";
+
+          box.style.display = "block";
+          box.style.left = rect.left + "px";
+          box.style.top = rect.top + "px";
+          box.style.width = rect.width + "px";
+          box.style.height = rect.height + "px";
+
+          label.textContent = prefixText + tag + " - " + width + " x " + height;
+          const labelTop = rect.top - 20 < 4 ? rect.bottom + 4 : rect.top - 20;
+          label.style.display = "block";
+          label.style.left = rect.left + "px";
+          label.style.top = labelTop + "px";
+        };
+
+        return {
+          setEnabled(enabled) {
+            overlay.style.display = enabled ? "block" : "none";
+          },
+          update({ hovered, selected }) {
+            updateBox(selectedBox, selectedLabel, selected, "Selected");
+            const hoverTarget = hovered && hovered !== selected ? hovered : null;
+            updateBox(hoverBox, hoverLabel, hoverTarget, "");
+          },
+        };
+      };
+
+      const inspectOverlay = createInspectOverlay();
+      const inspectState = {
+        enabled: false,
+        hovered: null,
+        selected: null,
+      };
+
+      let inspectListenersAttached = false;
+      const attachInspectListeners = () => {
+        if (inspectListenersAttached) return;
+        inspectListenersAttached = true;
+        document.addEventListener("mousemove", handleMouseMove);
+        document.addEventListener("click", handleClick);
+        document.addEventListener("keydown", handleKeyDown);
+        window.addEventListener("resize", updateInspectOverlay);
+      };
+
+      const detachInspectListeners = () => {
+        if (!inspectListenersAttached) return;
+        inspectListenersAttached = false;
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("click", handleClick);
+        document.removeEventListener("keydown", handleKeyDown);
+        window.removeEventListener("resize", updateInspectOverlay);
+      };
+
+      const sendInspectMessage = (type, element) => {
+        const source = element ? elementSourceMap.get(element) : null;
+        parent.postMessage({ type, source: source ?? null }, "*");
+      };
+
+      const updateInspectOverlay = () => {
+        if (!inspectState.enabled) {
+          inspectOverlay.setEnabled(false);
+          return;
+        }
+        inspectOverlay.setEnabled(true);
+        inspectOverlay.update({
+          hovered: inspectState.hovered,
+          selected: inspectState.selected,
+        });
+      };
+
+      const setInspectEnabled = (enabled) => {
+        if (enabled === inspectState.enabled) {
+          updateInspectOverlay();
+          return;
+        }
+        inspectState.enabled = enabled;
+        if (!enabled) {
+          inspectState.hovered = null;
+          inspectState.selected = null;
+          sendInspectMessage("inspect-hover", null);
+          sendInspectMessage("inspect-select", null);
+          detachInspectListeners();
+        } else {
+          attachInspectListeners();
+        }
+        updateInspectOverlay();
+      };
+
+      const handleMouseMove = (event) => {
+        if (!inspectState.enabled) return;
+        const target = resolveInspectableTarget(event.target);
+        if (target === inspectState.hovered) return;
+        inspectState.hovered = target;
+        updateInspectOverlay();
+        const hoverTarget = target && target !== inspectState.selected ? target : null;
+        sendInspectMessage("inspect-hover", hoverTarget);
+      };
+
+      const handleClick = (event) => {
+        if (!inspectState.enabled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const target = resolveInspectableTarget(event.target);
+        inspectState.selected = target;
+        updateInspectOverlay();
+        sendInspectMessage("inspect-select", target);
+      };
+
+      const handleKeyDown = (event) => {
+        if (!inspectState.enabled) return;
+        if (event.key !== "Escape") return;
+        inspectState.selected = null;
+        updateInspectOverlay();
+        sendInspectMessage("inspect-select", null);
+      };
+
+      window.addEventListener("message", (event) => {
+        const data = event.data;
+        if (!data || typeof data.type !== "string") return;
+        if (data.type === "inspect-toggle") {
+          setInspectEnabled(Boolean(data.enabled));
+        }
+      });
 
       // Execute compiled snippet code
       ${escapedCode}

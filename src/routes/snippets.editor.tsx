@@ -53,6 +53,7 @@ import {
 import { useDerivedSnippetProps } from "@/routes/-snippets/new/hooks/use-derived-snippet-props"
 import { useSnippetComponentExports } from "@/routes/-snippets/new/hooks/use-snippet-component-exports"
 import { useSnippetFilters } from "@/routes/-snippets/new/hooks/use-snippet-filters"
+import { useSnippetInspect } from "@/routes/-snippets/new/hooks/use-snippet-inspect"
 import { useSnippetPanels } from "@/routes/-snippets/new/hooks/use-snippet-panels"
 import { useSnippetSplitView } from "@/routes/-snippets/new/hooks/use-snippet-split-view"
 import {
@@ -102,6 +103,7 @@ function NewSnippetPage() {
 	const autoOpenComponentsRef = useRef(false)
 	const fileMigrationRef = useRef(false)
 	const editAppliedRef = useRef<string | null>(null)
+	const suppressComponentSyncRef = useRef(false)
 	const [error, setError] = useState<string | null>(null)
 	const [isSubmitting, setIsSubmitting] = useState(false)
 	const [useComponentDefaults, setUseComponentDefaults] = useState(false)
@@ -481,6 +483,10 @@ function NewSnippetPage() {
 
 	useEffect(() => {
 		if (!isComponentFileId(activeFile)) return
+		if (suppressComponentSyncRef.current) {
+			suppressComponentSyncRef.current = false
+			return
+		}
 		const exportName = getComponentExportName(activeFile)
 		if (exportName && exportName !== activeComponentExport) {
 			setActiveComponentExport(exportName)
@@ -572,6 +578,34 @@ function NewSnippetPage() {
 		setOpenFiles((prev) => (prev.includes(fileId) ? prev : [...prev, fileId]))
 		setActiveFile(fileId)
 	}, [])
+
+	const openFileForInspect = useCallback(
+		(fileId: SnippetEditorFileId) => {
+			setOpenFiles((prev) => (prev.includes(fileId) ? prev : [...prev, fileId]))
+			if (fileId !== activeFile && isComponentFileId(fileId)) {
+				suppressComponentSyncRef.current = true
+			}
+			if (fileId !== activeFile) {
+				setActiveFile(fileId)
+			}
+		},
+		[activeFile],
+	)
+	const {
+		inspectMode,
+		setInspectMode,
+		inspectEnabled,
+		inspectHighlight,
+		onPreviewInspectHover,
+		onPreviewInspectSelect,
+	} = useSnippetInspect({
+		mainSource: parsedFiles.mainSource,
+		mainEditorSource,
+		componentFiles: parsedFiles.files,
+		activeFile,
+		isExamplePreviewActive,
+		onOpenFileForInspect: openFileForInspect,
+	})
 
 	const handleReorderOpenFiles = useCallback((fileIds: SnippetEditorFileId[]) => {
 		setOpenFiles(fileIds)
@@ -976,6 +1010,8 @@ export const ${name} = ({ title = "New snippet" }) => {
 			useComponentDefaults={useComponentDefaults}
 			onExitExamplePreview={() => setIsExamplePreviewActive(false)}
 			onToggleDefaults={() => setUseComponentDefaults((prev) => !prev)}
+			inspectEnabled={inspectMode}
+			onToggleInspect={() => setInspectMode((prev) => !prev)}
 		/>
 	)
 	const { onResizeStart } = useSnippetSplitView({
@@ -1096,6 +1132,7 @@ export const ${name} = ({ title = "New snippet" }) => {
 							derivedDuplicateKeys={derivedProps.duplicateKeys}
 							compileStatus={compileStatus}
 							compileErrors={compileErrors}
+							inspectHighlight={inspectHighlight}
 						/>
 
 						<SnippetSplitViewResizer isHidden={editorCollapsed} onPointerDown={onResizeStart} />
@@ -1109,6 +1146,9 @@ export const ${name} = ({ title = "New snippet" }) => {
 								dimensions={previewDimensionsToUse}
 								className="h-full"
 								headerActions={previewHeaderActions}
+								inspectEnabled={inspectEnabled}
+								onInspectHover={onPreviewInspectHover}
+								onInspectSelect={onPreviewInspectSelect}
 							/>
 						</div>
 					</section>
