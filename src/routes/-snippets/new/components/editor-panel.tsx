@@ -15,7 +15,9 @@ import {
 	useSortable,
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
+import type { Monaco } from "@monaco-editor/react"
 import { AlertCircle, CheckCircle2, Loader2, Plus, Upload, X } from "lucide-react"
+import type { editor } from "monaco-editor"
 import {
 	type ChangeEvent,
 	type MouseEvent,
@@ -23,6 +25,8 @@ import {
 	type RefObject,
 	Suspense,
 	useCallback,
+	useEffect,
+	useRef,
 	type WheelEvent,
 } from "react"
 import type { UseFormReturn } from "react-hook-form"
@@ -39,6 +43,7 @@ import type {
 	SnippetEditorFile,
 	SnippetEditorFileId,
 } from "@/routes/-snippets/new/snippet-editor-types"
+import type { SnippetInspectHighlight } from "@/routes/-snippets/new/snippet-inspect-utils"
 
 interface SnippetEditorPanelProps {
 	containerRef?: Ref<HTMLDivElement>
@@ -79,6 +84,7 @@ interface SnippetEditorPanelProps {
 	derivedDuplicateKeys: string[]
 	compileStatus: CompileStatus
 	compileErrors: CompileError[]
+	inspectHighlight?: SnippetInspectHighlight | null
 }
 
 interface SnippetEditorTabProps {
@@ -191,7 +197,11 @@ export function SnippetEditorPanel({
 	derivedDuplicateKeys,
 	compileStatus,
 	compileErrors,
+	inspectHighlight = null,
 }: SnippetEditorPanelProps) {
+	const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+	const monacoRef = useRef<Monaco | null>(null)
+	const decorationIdsRef = useRef<string[]>([])
 	const handleTabBarWheel = useCallback((event: WheelEvent<HTMLDivElement>) => {
 		const container = event.currentTarget
 		if (!container) return
@@ -221,6 +231,109 @@ export function SnippetEditorPanel({
 		const nextOrder = arrayMove(openFiles, oldIndex, newIndex)
 		onReorderOpenFiles(nextOrder)
 	}
+
+	const applyInspectHighlight = useCallback(
+		(nextHighlight: SnippetInspectHighlight | null) => {
+			const editorInstance = editorRef.current
+			const monacoInstance = monacoRef.current
+			if (!editorInstance || !monacoInstance) return
+			const model = editorInstance.getModel()
+			if (!model) return
+
+			const decorations: editor.IModelDeltaDecoration[] = []
+			if (nextHighlight && nextHighlight.fileId === activeFile) {
+				const maxLine = model.getLineCount()
+				const startLine = Math.min(Math.max(nextHighlight.startLine, 1), Math.max(maxLine, 1))
+				const endLine = Math.min(Math.max(nextHighlight.endLine, 1), Math.max(maxLine, 1))
+				const normalizedStart = Math.min(startLine, endLine)
+				const normalizedEnd = Math.max(startLine, endLine)
+				decorations.push({
+					range: new monacoInstance.Range(normalizedStart, 1, normalizedEnd, 1),
+					options: {
+						isWholeLine: true,
+						className:
+							nextHighlight.kind === "select"
+								? "snippet-inspect-line"
+								: "snippet-inspect-line-hover",
+						linesDecorationsClassName:
+							nextHighlight.kind === "select"
+								? "snippet-inspect-gutter"
+								: "snippet-inspect-gutter-hover",
+					},
+				})
+
+				if (nextHighlight.textRanges.length > 0) {
+					const inlineClass =
+						nextHighlight.kind === "select" ? "snippet-inspect-text" : "snippet-inspect-text-hover"
+					for (const range of nextHighlight.textRanges) {
+						const rangeStartLine = Math.min(Math.max(range.startLine, 1), Math.max(maxLine, 1))
+						const rangeEndLine = Math.min(Math.max(range.endLine, 1), Math.max(maxLine, 1))
+						const lineLength = model.getLineLength(rangeStartLine)
+						const endLineLength = model.getLineLength(rangeEndLine)
+						const rangeStartColumn = Math.min(
+							Math.max(range.startColumn, 1),
+							Math.max(lineLength + 1, 1),
+						)
+						const rangeEndColumn = Math.min(
+							Math.max(range.endColumn, 1),
+							Math.max(endLineLength + 1, 1),
+						)
+						let startLineNumber = rangeStartLine
+						let startColumnNumber = rangeStartColumn
+						let endLineNumber = rangeEndLine
+						let endColumnNumber = rangeEndColumn
+						if (
+							startLineNumber > endLineNumber ||
+							(startLineNumber === endLineNumber && startColumnNumber >= endColumnNumber)
+						) {
+							startLineNumber = rangeEndLine
+							startColumnNumber = rangeEndColumn
+							endLineNumber = rangeStartLine
+							endColumnNumber = rangeStartColumn
+						}
+						if (startLineNumber === endLineNumber && startColumnNumber >= endColumnNumber) {
+							continue
+						}
+						decorations.push({
+							range: new monacoInstance.Range(
+								startLineNumber,
+								startColumnNumber,
+								endLineNumber,
+								endColumnNumber,
+							),
+							options: {
+								inlineClassName: inlineClass,
+							},
+						})
+					}
+				}
+
+				if (nextHighlight.kind === "select") {
+					editorInstance.revealLineInCenterIfOutsideViewport(normalizedStart)
+				}
+			}
+
+			decorationIdsRef.current = editorInstance.deltaDecorations(
+				decorationIdsRef.current,
+				decorations,
+			)
+		},
+		[activeFile],
+	)
+
+	const handleMonacoMount = useCallback(
+		(nextEditor: editor.IStandaloneCodeEditor, monacoInstance: Monaco) => {
+			editorRef.current = nextEditor
+			monacoRef.current = monacoInstance
+			decorationIdsRef.current = []
+			applyInspectHighlight(inspectHighlight)
+		},
+		[applyInspectHighlight, inspectHighlight],
+	)
+
+	useEffect(() => {
+		applyInspectHighlight(inspectHighlight)
+	}, [applyInspectHighlight, inspectHighlight])
 
 	return (
 		<div
@@ -413,6 +526,7 @@ export function SnippetEditorPanel({
 													extraLibs={componentTypeLibs}
 													definitionMap={componentDefinitionMap}
 													onDefinitionSelect={onDefinitionSelect}
+													onMount={handleMonacoMount}
 													height="100%"
 													className="h-full"
 													markers={monacoMarkers}
@@ -440,6 +554,7 @@ export function SnippetEditorPanel({
 										onChange={onComponentSourceChange}
 										language="typescript"
 										path={activeComponentFileName ?? "Component.tsx"}
+										onMount={handleMonacoMount}
 										height="100%"
 										className="h-full"
 										markers={[]}
@@ -467,6 +582,7 @@ export function SnippetEditorPanel({
 													height="100%"
 													className="h-full bg-neutral-50"
 													readOnly
+													onMount={handleMonacoMount}
 												/>
 											</Suspense>
 										</ClientOnly>
@@ -494,6 +610,7 @@ export function SnippetEditorPanel({
 													height="100%"
 													className="h-full bg-neutral-50"
 													readOnly
+													onMount={handleMonacoMount}
 												/>
 											</Suspense>
 										</ClientOnly>

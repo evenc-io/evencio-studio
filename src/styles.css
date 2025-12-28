@@ -35,6 +35,35 @@ code {
     Consolas, "Courier New", monospace;
 }
 
+/* Snippet inspector Monaco highlights */
+.monaco-editor .snippet-inspect-line {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.monaco-editor .snippet-inspect-line-hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.monaco-editor .snippet-inspect-gutter {
+  border-left: 2px solid rgba(0, 0, 0, 0.6);
+}
+
+.monaco-editor .snippet-inspect-gutter-hover {
+  border-left: 2px solid rgba(0, 0, 0, 0.35);
+}
+
+.monaco-editor .snippet-inspect-text {
+  background: rgba(255, 183, 0, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(128, 74, 0, 0.35);
+  border-radius: 2px;
+}
+
+.monaco-editor .snippet-inspect-text-hover {
+  background: rgba(255, 183, 0, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(128, 74, 0, 0.25);
+  border-radius: 2px;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

@@ -112,6 +112,14 @@ function wrapForPreview(code: string, entryExport?: string): string {
 (function() {
   const React = window.React;
 
+  const attachDevSource = (props, source) => {
+    if (!source) return props || null;
+    if (props && typeof props === "object") {
+      return { ...props, __source: source };
+    }
+    return { __source: source };
+  };
+
   // jsx-runtime shim for automatic JSX transform
   const jsxRuntime = {
     jsx: function(type, props, key) {
@@ -122,6 +130,18 @@ function wrapForPreview(code: string, entryExport?: string): string {
       const { children, ...rest } = props || {};
       return React.createElement(type, key !== undefined ? { ...rest, key } : rest, ...(Array.isArray(children) ? children : [children]));
     },
+    jsxDEV: function(type, props, key, _isStaticChildren, source, _self) {
+      const nextProps = attachDevSource(props, source);
+      const { children, ...rest } = nextProps || {};
+      return React.createElement(type, key !== undefined ? { ...rest, key } : rest, ...(Array.isArray(children) ? children : [children]));
+    },
+    Fragment: React.Fragment
+  };
+
+  const jsxDevRuntime = {
+    jsxDEV: jsxRuntime.jsxDEV,
+    jsx: jsxRuntime.jsx,
+    jsxs: jsxRuntime.jsxs,
     Fragment: React.Fragment
   };
 
@@ -129,6 +149,7 @@ function wrapForPreview(code: string, entryExport?: string): string {
   const require = (name) => {
     if (name === "react") return React;
     if (name === "react/jsx-runtime") return jsxRuntime;
+    if (name === "react/jsx-dev-runtime") return jsxDevRuntime;
     throw new Error("Only React imports are supported in snippets. Found: " + name);
   };
 
@@ -170,10 +191,12 @@ export async function compileSnippet(source: string, entryExport?: string): Prom
 		const result = await esbuild.transform(normalizedSource, {
 			loader: "tsx",
 			jsx: "automatic",
+			jsxDev: true,
 			target: "es2020",
 			format: "cjs",
 			minify: false,
 			sourcemap: false,
+			sourcefile: "Snippet.tsx",
 		})
 
 		// Check for errors
