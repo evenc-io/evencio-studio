@@ -14,6 +14,7 @@ import {
 	generatePreviewSrcdoc,
 	type PreviewDimensions,
 	type PreviewMessage,
+	type PreviewSourceLocation,
 } from "@/lib/snippets/preview-runtime"
 
 export interface SnippetPreviewProps {
@@ -33,6 +34,12 @@ export interface SnippetPreviewProps {
 	className?: string
 	/** Optional actions rendered in the preview header */
 	headerActions?: ReactNode
+	/** Enable inspect mode in the preview iframe */
+	inspectEnabled?: boolean
+	/** Called when the preview reports a hovered element source location */
+	onInspectHover?: (source: PreviewSourceLocation | null) => void
+	/** Called when the preview reports a selected element source location */
+	onInspectSelect?: (source: PreviewSourceLocation | null) => void
 }
 
 export type PreviewStatus = "idle" | "loading" | "success" | "error"
@@ -46,12 +53,16 @@ export function SnippetPreview({
 	onRenderError,
 	className,
 	headerActions,
+	inspectEnabled = false,
+	onInspectHover,
+	onInspectSelect,
 }: SnippetPreviewProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null)
 	const containerRef = useRef<HTMLDivElement>(null)
 	const [status, setStatus] = useState<PreviewStatus>("idle")
 	const [error, setError] = useState<string | null>(null)
 	const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
+	const [isReady, setIsReady] = useState(false)
 
 	// Handle messages from the iframe
 	const handleMessage = useCallback(
@@ -69,6 +80,7 @@ export function SnippetPreview({
 			switch (data.type) {
 				case "ready":
 					// Iframe is loaded and executing
+					setIsReady(true)
 					break
 				case "render-success":
 					setStatus("success")
@@ -80,9 +92,15 @@ export function SnippetPreview({
 					setError(data.error ?? "Unknown render error")
 					onRenderError?.(data.error ?? "Unknown error", data.stack)
 					break
+				case "inspect-hover":
+					onInspectHover?.(data.source ?? null)
+					break
+				case "inspect-select":
+					onInspectSelect?.(data.source ?? null)
+					break
 			}
 		},
-		[onRenderSuccess, onRenderError],
+		[onInspectHover, onInspectSelect, onRenderSuccess, onRenderError],
 	)
 
 	// Set up message listener
@@ -96,11 +114,17 @@ export function SnippetPreview({
 		if (!compiledCode) {
 			setStatus("idle")
 			setError(null)
+			setIsReady(false)
+			onInspectHover?.(null)
+			onInspectSelect?.(null)
 			return
 		}
 
 		setStatus("loading")
 		setError(null)
+		setIsReady(false)
+		onInspectHover?.(null)
+		onInspectSelect?.(null)
 
 		// Generate new srcdoc
 		const srcdoc = generatePreviewSrcdoc(compiledCode, props, dimensions, tailwindCss ?? undefined)
@@ -109,7 +133,16 @@ export function SnippetPreview({
 		if (iframeRef.current) {
 			iframeRef.current.srcdoc = srcdoc
 		}
-	}, [compiledCode, props, dimensions, tailwindCss])
+	}, [compiledCode, props, dimensions, tailwindCss, onInspectHover, onInspectSelect])
+
+	useEffect(() => {
+		const iframe = iframeRef.current
+		if (!iframe || !isReady) return
+		iframe.contentWindow?.postMessage(
+			{ type: "inspect-toggle", enabled: Boolean(inspectEnabled) },
+			"*",
+		)
+	}, [inspectEnabled, isReady])
 
 	useEffect(() => {
 		const element = containerRef.current
