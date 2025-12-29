@@ -22,31 +22,47 @@ const vendorChunks = (id: string) => {
 }
 
 type ZodFunctionSchemaLike = {
+	input?: (schema: unknown) => unknown
 	output?: (schema: unknown) => unknown
+	args?: (...schemas: unknown[]) => unknown
 	returns?: (schema: unknown) => unknown
 }
 
-const ensureZodFunctionReturns = async () => {
+const ensureZodFunctionCompat = async () => {
 	const zodModule = await import("zod")
 	const z =
 		(zodModule as { z?: unknown }).z ?? (zodModule as { default?: unknown }).default ?? zodModule
 	const ZodFunction = (z as { ZodFunction?: { prototype?: ZodFunctionSchemaLike } }).ZodFunction
 	if (!ZodFunction?.prototype) return
-	if (typeof ZodFunction.prototype.returns === "function") return
 
-	// Patch zod v4 to expose v3-style .returns for tanstack router generator.
-	Object.defineProperty(ZodFunction.prototype, "returns", {
-		value(schema: unknown) {
-			const instance = this as ZodFunctionSchemaLike
-			if (typeof instance.output === "function") {
-				return instance.output(schema)
-			}
-			return this
-		},
-	})
+	// Patch zod v4 to expose v3-style .args/.returns for tanstack plugins.
+	if (typeof ZodFunction.prototype.args !== "function") {
+		Object.defineProperty(ZodFunction.prototype, "args", {
+			value(...schemas: unknown[]) {
+				const instance = this as ZodFunctionSchemaLike
+				if (typeof instance.input !== "function") return this
+				if (schemas.length === 1 && Array.isArray(schemas[0])) {
+					return instance.input(schemas[0])
+				}
+				return instance.input(schemas)
+			},
+		})
+	}
+
+	if (typeof ZodFunction.prototype.returns !== "function") {
+		Object.defineProperty(ZodFunction.prototype, "returns", {
+			value(schema: unknown) {
+				const instance = this as ZodFunctionSchemaLike
+				if (typeof instance.output === "function") {
+					return instance.output(schema)
+				}
+				return this
+			},
+		})
+	}
 }
 
-await ensureZodFunctionReturns()
+await ensureZodFunctionCompat()
 const { tanstackStart } = await import("@tanstack/react-start/plugin/vite")
 
 const config = defineConfig({
