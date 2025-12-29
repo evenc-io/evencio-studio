@@ -1,32 +1,37 @@
 # Evencio Marketing Tools
 
-> Source-available marketing tool for event organizers - create social media images, posters, and promotional materials.
+> Source-available marketing tool for event organizers - design social images, posters, and code-driven snippets.
 
 [![Built with Bun](https://img.shields.io/badge/Built%20with-Bun-black)](https://bun.sh)
 [![TanStack Start](https://img.shields.io/badge/TanStack-Start-blue)](https://tanstack.com/start)
 
-## Features
+## What you can do
 
-- **Social Media Images** - Create Instagram posts, Facebook covers, Twitter/X banners
-- **Event Posters** - Design printable promotional materials
-- **Template Library** - Pre-built templates for quick customization
-- **Export Options** - Download as PNG, JPEG, or PDF
-- **Optional Evencio Integration** - Connect your Evencio account to auto-populate event data
+- Project dashboard with multi-slide designs and presets for social and print sizes
+- Canvas editor (Fabric.js) with layers, transforms, autosave, and PNG/JPEG/PDF export
+- Snippet editor for React/TSX assets with Monaco, live preview, templates, and validation
+- Asset library with tags, favorites, and scope levels (global/org/event/personal)
+- Local-first storage (IndexedDB) with thumbnails and storage management
+- Integrations settings for the upcoming Evencio connector
 
 ## Tech Stack
 
-- **Framework**: [TanStack Start](https://tanstack.com/start) (React)
-- **Runtime**: [Bun](https://bun.sh)
-- **UI**: [shadcn/ui](https://ui.shadcn.com) + [Tailwind CSS](https://tailwindcss.com)
-- **Canvas**: [Fabric.js](http://fabricjs.com)
-- **State**: [Zustand](https://zustand-demo.pmnd.rs) + [TanStack Query](https://tanstack.com/query)
-- **Export**: html-to-image + jsPDF
+- Framework: TanStack Start + TanStack Router + TanStack Query (React 19)
+- Runtime: Bun + Vite + Nitro
+- Canvas: Fabric.js
+- Snippets: Monaco Editor + esbuild-wasm
+- Performance: Zig/WASM helpers for snippet analysis (optional build)
+- UI: shadcn/ui + Tailwind CSS v4
+- State: Zustand
+- Tooling: Biome, TypeScript
 
 ## Getting Started
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) v1.0+
+- Bun v1.0+
+- Zig (optional, only if building WASM)
+- Node.js (optional, only for font/embed and license scripts)
 
 ### Installation
 
@@ -42,7 +47,7 @@ bun install
 bun run dev
 ```
 
-The app will be available at [http://localhost:3000](http://localhost:3000).
+The app will be available at http://localhost:3010.
 
 ### Production Build
 
@@ -58,37 +63,53 @@ bun run start
 
 ```
 src/
-├── routes/              # TanStack Router file-based routes
-│   ├── __root.tsx       # Root layout
-│   ├── index.tsx        # Landing page
-│   └── create/          # Creator routes
-│       ├── social-image.tsx
-│       └── poster.tsx
+├── routes/              # Dashboard, project editor, asset library, snippets editor, settings
 ├── components/
-│   ├── ui/              # shadcn/ui components
-│   ├── editor/          # Canvas editor components
-│   └── templates/       # Template preview components
+│   ├── asset-library/   # Asset library UI
+│   ├── dashboard/       # Project dashboard components
+│   ├── editor/          # Fabric.js editor UI
+│   ├── layout/          # App layout and navigation
+│   └── ui/              # shadcn/ui components
 ├── lib/
-│   ├── canvas/          # Canvas rendering logic
-│   ├── export/          # Image/PDF export utilities
-│   ├── templates/       # Template definitions
-│   └── evencio/         # Optional Evencio API integration
-├── hooks/               # Custom React hooks
+│   ├── asset-library/   # Asset registry, search, and rendering
+│   ├── snippets/        # Snippet compiler, templates, and preview runtime
+│   ├── export/          # PNG/JPEG/PDF export utilities
+│   ├── storage/         # IndexedDB storage, autosave, thumbnails
+│   └── wasm/            # Zig/WASM helpers for snippet parsing
 ├── stores/              # Zustand stores
+├── hooks/               # Shared hooks
 └── types/               # TypeScript types
+server/                  # Server-side rendering utilities (snippets)
+scripts/                 # WASM build + maintenance scripts
+docs/                    # Architecture and benchmarks
 ```
 
 ## Scripts
 
 | Script | Description |
 |--------|-------------|
-| `bun run dev` | Start development server |
+| `bun run dev` | Start development server (port 3010) |
 | `bun run build` | Build for production |
 | `bun run start` | Start production server |
-| `bun run lint` | Run Biome linter |
+| `bun run preview` | Preview production build |
+| `bun run lint` | Run Biome + TypeScript checks |
 | `bun run lint:fix` | Fix lint issues |
 | `bun run format` | Format code with Biome |
 | `bun run test` | Run tests |
+| `bun run wasm:snippets` | Build Zig/WASM snippet helpers |
+| `bun run perf:wasm` | Run WASM benchmarks |
+| `bun run third-party-notices` | Regenerate third-party notices |
+
+## Snippet WASM (optional)
+
+Zig/WASM helpers accelerate snippet parsing and inspection in the editor. To build and benchmark:
+
+```bash
+bun run wasm:snippets
+bun run perf:wasm
+```
+
+See docs/benchmarks/README.md for details.
 
 ## Snippet Rendering Fonts
 
@@ -98,45 +119,51 @@ Server-side snippet PNG rendering embeds font data to keep exports deterministic
 node scripts/generate-snippet-fonts.mjs
 ```
 
-This script updates `server/lib/snippet-fonts.ts` and caches downloaded woff2 files in `server/assets/fonts`.
+This script updates server/lib/snippet-fonts.ts and caches downloaded woff2 files in server/assets/fonts.
+
+## Docs
+
+- docs/animated-editor-architecture.md - editor architecture notes
+- docs/benchmarks/README.md - Zig/WASM benchmark entry point
+- docs/connector-ecosystem.md - connector strategy and ecosystem notes
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions. Please see our Contributing Guide (CONTRIBUTING.md) for details.
 
 ## Ecosystem
 
-Connector strategy and ecosystem notes live in [docs/connector-ecosystem.md](docs/connector-ecosystem.md).
+Connector strategy and ecosystem notes live in docs/connector-ecosystem.md.
 
 ## Contact
 
-Yan Malinovskiy — yanmalinovskiy@evenc.io
+Yan Malinovskiy - yanmalinovskiy@evenc.io
 
 ## License
 
-This project is **source-available (Fair Source)** under **FSL-1.1-MIT**. See [`LICENSE`](./LICENSE).
+This project is source-available (Fair Source) under FSL-1.1-MIT. See LICENSE.
 
-Third-party dependencies and their licenses are listed in [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md). Regenerate with `bun run third-party-notices`.
+Third-party dependencies and their licenses are listed in THIRD_PARTY_NOTICES.md. Regenerate with `bun run third-party-notices`.
 
 ### TL;DR (plain-language summary)
 
-**Allowed (Permitted Purpose):**
-- Use, modify, and run locally / self-host for **internal use and evaluation**
-- Use for **non-commercial education** and **non-commercial research**
-- Use as an **agency / consultant** to deliver professional services for a client who is using the Software under these terms
+Allowed (Permitted Purpose):
+- Use, modify, and run locally / self-host for internal use and evaluation
+- Use for non-commercial education and non-commercial research
+- Use as an agency / consultant to deliver professional services for a client who is using the Software under these terms
 
-**Not allowed (Competing Use) without a commercial license:**
-- **Offering** this editor/SDK/template system **to third parties** as part of a **commercial product or service**
-- Shipping a hosted/SaaS editor, “asset builder”, or similar functionality that makes the Software available to your users/customers
-- Embedding it into commercial **platforms/marketplaces/resellers** where customers can access the functionality as part of the platform’s offering
+Not allowed (Competing Use) without a commercial license:
+- Offering this editor/SDK/template system to third parties as part of a commercial product or service
+- Shipping a hosted/SaaS editor, asset builder, or similar functionality that makes the Software available to your users/customers
+- Embedding it into commercial platforms/marketplaces/resellers where customers can access the functionality as part of the platform's offering
 
-If you’re unsure whether your use is “Competing Use”, see [`COMMERCIAL.md`](./COMMERCIAL.md).
+If you are unsure whether your use is Competing Use, see COMMERCIAL.md.
 
 ### 2-year rolling conversion to MIT (per commit/version)
 
-FSL applies per **version** of the software that is made available. In a git repository, treat each pushed commit as a version made available at the time it was first published.  
-**Two years after a given commit was first made available, that commit is additionally available under the MIT License.** Newer commits remain under FSL until they reach the 2-year mark.
+FSL applies per version of the software that is made available. In a git repository, treat each pushed commit as a version made available at the time it was first published.
+Two years after a given commit was first made available, that commit is additionally available under the MIT License. Newer commits remain under FSL until they reach the 2-year mark.
 
 ### Trademarks / branding
 
-The license does **not** grant rights to Evencio trademarks or logos beyond attribution/origin. Public forks must rebrand before publishing. See [`TRADEMARKS.md`](./TRADEMARKS.md).
+The license does not grant rights to Evencio trademarks or logos beyond attribution/origin. Public forks must rebrand before publishing. See TRADEMARKS.md.
