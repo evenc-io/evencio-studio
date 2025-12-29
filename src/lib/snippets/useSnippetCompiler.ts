@@ -335,10 +335,6 @@ export function useSnippetCompiler({
 	useEffect(() => {
 		if (!analysis) return
 		if (!compiledCode || status !== "success") return
-		const analysisHash = typeof analysis.sourceHash === "number" ? analysis.sourceHash : null
-		if (analysisHash === null) return
-		const currentHash = hashSnippetSourceSync(source)
-		if (analysisHash !== currentHash) return
 
 		const securityErrors = securityIssuesToCompileErrors(analysis.securityIssues)
 		if (securityErrors.length > 0) {
@@ -363,7 +359,7 @@ export function useSnippetCompiler({
 		if (analysis.tailwindCss !== null && analysis.tailwindCss !== tailwindCss) {
 			setTailwindCss(analysis.tailwindCss)
 		}
-	}, [analysis, compiledCode, enableTailwindCss, source, status, tailwindCss])
+	}, [analysis, compiledCode, enableTailwindCss, status, tailwindCss])
 
 	// Convert errors to Monaco markers
 	const monacoMarkers = useMemo(() => {
