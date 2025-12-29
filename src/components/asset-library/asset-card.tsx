@@ -44,36 +44,95 @@ export function AssetCard({
 	const isGrid = view === "grid"
 
 	return (
-		<button
-			type="button"
-			onClick={() => onSelect(asset.id)}
-			data-selected={isSelected}
-			className={cn(
-				"group relative w-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900",
-				"data-[selected=true]:ring-1 data-[selected=true]:ring-neutral-900/20",
-				isGrid
-					? cn(
-							"flex flex-col gap-3 bg-white p-4",
-							isHidden ? "bg-amber-50/70" : "hover:bg-neutral-50",
-						)
-					: cn(
-							"flex items-center gap-4 rounded-md border border-neutral-200 bg-white p-3",
-							isHidden ? "border-amber-200 bg-amber-50/60" : "hover:border-neutral-300",
-							"data-[selected=true]:border-neutral-900",
-						),
-			)}
-		>
-			{/* Controls row */}
-			{view === "grid" && (
-				<div className="flex items-center justify-between">
-					{isHidden ? (
-						<div className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-							<EyeOff className="h-3 w-3" />
-							Hidden
-						</div>
-					) : (
-						<div />
+		<div className="relative w-full">
+			<button
+				type="button"
+				onClick={() => onSelect(asset.id)}
+				data-selected={isSelected}
+				className={cn(
+					"group relative w-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900",
+					"data-[selected=true]:ring-1 data-[selected=true]:ring-neutral-900/20",
+					isGrid
+						? cn(
+								"flex flex-col gap-3 bg-white p-4",
+								isHidden ? "bg-amber-50/70" : "hover:bg-neutral-50",
+							)
+						: cn(
+								"flex items-center gap-4 rounded-md border border-neutral-200 bg-white p-3 pr-12",
+								isHidden ? "border-amber-200 bg-amber-50/60" : "hover:border-neutral-300",
+								"data-[selected=true]:border-neutral-900",
+							),
+				)}
+			>
+				{/* Controls row */}
+				{view === "grid" && (
+					<div className="flex items-center justify-between">
+						{isHidden ? (
+							<div className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+								<EyeOff className="h-3 w-3" />
+								Hidden
+							</div>
+						) : (
+							<div />
+						)}
+					</div>
+				)}
+
+				<div
+					className={cn(
+						"flex items-center justify-center rounded-md border border-neutral-200 bg-neutral-50 text-neutral-400",
+						view === "list" ? "h-12 w-12" : "aspect-[4/3] w-full",
 					)}
+				>
+					<Icon className={cn("h-5 w-5", view === "list" ? "" : "h-6 w-6")} />
+				</div>
+
+				<div className={cn("flex-1 space-y-1", view === "list" ? "" : "")}>
+					<div>
+						<p className="text-sm font-medium text-neutral-900">{asset.metadata.title}</p>
+						<div className="flex items-center gap-1.5">
+							<p className="text-xs text-neutral-500">{typeConfig[asset.type].label}</p>
+							{asset.type === "snippet" && (
+								<span
+									className={cn(
+										"rounded-full px-1.5 py-0.5 text-[9px] font-medium",
+										asset.snippet.source
+											? "border border-neutral-200 bg-neutral-50 text-neutral-700"
+											: "border border-neutral-200 bg-neutral-50 text-neutral-500",
+									)}
+								>
+									{asset.snippet.source ? "Custom" : "Registry"}
+								</span>
+							)}
+						</div>
+					</div>
+
+					{asset.metadata.description && view === "grid" && (
+						<p className="line-clamp-2 text-xs text-neutral-500">{asset.metadata.description}</p>
+					)}
+
+					{tagLabels.length > 0 && (
+						<div className="flex flex-wrap gap-1">
+							{tagLabels.map((label) => (
+								<span
+									key={label}
+									className="rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] text-neutral-600"
+								>
+									{label}
+								</span>
+							))}
+							{asset.metadata.tags.length > tagLabels.length && (
+								<span className="rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] text-neutral-600">
+									+{asset.metadata.tags.length - tagLabels.length}
+								</span>
+							)}
+						</div>
+					)}
+				</div>
+			</button>
+
+			{view === "grid" && (
+				<div className="absolute right-3 top-3">
 					<AssetMenu
 						isFavorite={isFavorite}
 						isHidden={isHidden}
@@ -84,61 +143,9 @@ export function AssetCard({
 				</div>
 			)}
 
-			<div
-				className={cn(
-					"flex items-center justify-center rounded-md border border-neutral-200 bg-neutral-50 text-neutral-400",
-					view === "list" ? "h-12 w-12" : "aspect-[4/3] w-full",
-				)}
-			>
-				<Icon className={cn("h-5 w-5", view === "list" ? "" : "h-6 w-6")} />
-			</div>
-
-			<div className={cn("flex-1 space-y-1", view === "list" ? "" : "")}>
-				<div>
-					<p className="text-sm font-medium text-neutral-900">{asset.metadata.title}</p>
-					<div className="flex items-center gap-1.5">
-						<p className="text-xs text-neutral-500">{typeConfig[asset.type].label}</p>
-						{asset.type === "snippet" && (
-							<span
-								className={cn(
-									"rounded-full px-1.5 py-0.5 text-[9px] font-medium",
-									asset.snippet.source
-										? "border border-neutral-200 bg-neutral-50 text-neutral-700"
-										: "border border-neutral-200 bg-neutral-50 text-neutral-500",
-								)}
-							>
-								{asset.snippet.source ? "Custom" : "Registry"}
-							</span>
-						)}
-					</div>
-				</div>
-
-				{asset.metadata.description && view === "grid" && (
-					<p className="line-clamp-2 text-xs text-neutral-500">{asset.metadata.description}</p>
-				)}
-
-				{tagLabels.length > 0 && (
-					<div className="flex flex-wrap gap-1">
-						{tagLabels.map((label) => (
-							<span
-								key={label}
-								className="rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] text-neutral-600"
-							>
-								{label}
-							</span>
-						))}
-						{asset.metadata.tags.length > tagLabels.length && (
-							<span className="rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] text-neutral-600">
-								+{asset.metadata.tags.length - tagLabels.length}
-							</span>
-						)}
-					</div>
-				)}
-			</div>
-
 			{/* List view controls */}
 			{view === "list" && (
-				<div className="flex items-center gap-2">
+				<div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
 					{isHidden && (
 						<div className="flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
 							<EyeOff className="h-3 w-3" />
@@ -154,7 +161,7 @@ export function AssetCard({
 					/>
 				</div>
 			)}
-		</button>
+		</div>
 	)
 }
 

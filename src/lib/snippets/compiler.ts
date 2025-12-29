@@ -6,6 +6,7 @@
  */
 
 import type * as esbuild from "esbuild-wasm"
+import { withTimeout } from "./async-timeout"
 import { expandSnippetSource } from "./source-files"
 
 // Types
@@ -25,64 +26,114 @@ export interface CompileResult {
 	warnings: CompileError[]
 }
 
-// Singleton state for lazy initialization
-let esbuildInstance: typeof esbuild | null = null
-let initPromise: Promise<typeof esbuild> | null = null
-let initError: Error | null = null
+type EsbuildGlobalState = {
+	instance: typeof esbuild | null
+	initPromise: Promise<typeof esbuild> | null
+	initError: Error | null
+	initErrorAt: number
+}
+
+const getEsbuildGlobalState = (): EsbuildGlobalState => {
+	const globalScope = globalThis as typeof globalThis & {
+		__evencio_esbuild_wasm__?: EsbuildGlobalState
+	}
+	if (!globalScope.__evencio_esbuild_wasm__) {
+		globalScope.__evencio_esbuild_wasm__ = {
+			instance: null,
+			initPromise: null,
+			initError: null,
+			initErrorAt: 0,
+		}
+	}
+	return globalScope.__evencio_esbuild_wasm__
+}
+
+const INIT_TIMEOUT_MS = 6000
+const INIT_RETRY_MS = 1500
 
 /**
  * Lazily initialize esbuild-wasm.
  * Only loads the WASM binary on first compile, avoiding bundle bloat.
  */
-const isBrowserRuntime =
-	typeof window !== "undefined" && typeof document !== "undefined" && typeof Bun === "undefined"
+const hasWorkerGlobalScope = typeof self !== "undefined" && "WorkerGlobalScope" in self
+const isServerRuntime =
+	typeof Bun !== "undefined" || (typeof process !== "undefined" && Boolean(process.versions?.node))
+const isBrowserRuntime = !isServerRuntime && (typeof window !== "undefined" || hasWorkerGlobalScope)
 
 async function resolveBrowserWasmUrl(): Promise<string | undefined> {
 	if (!isBrowserRuntime) return undefined
-	const wasmModule = await import("esbuild-wasm/esbuild.wasm?url")
-	return wasmModule.default
+	try {
+		const wasmModule = await import("esbuild-wasm/esbuild.wasm?url")
+		return wasmModule.default
+	} catch {
+		try {
+			return new URL("esbuild-wasm/esbuild.wasm", import.meta.url).toString()
+		} catch {
+			return undefined
+		}
+	}
 }
 
 async function getEsbuild(): Promise<typeof esbuild> {
+	const state = getEsbuildGlobalState()
 	// Return cached instance if already initialized
-	if (esbuildInstance) {
-		return esbuildInstance
+	if (state.instance) {
+		return state.instance
 	}
 
 	// Return cached error if initialization previously failed
-	if (initError) {
-		throw initError
+	if (state.initError) {
+		if (Date.now() - state.initErrorAt < INIT_RETRY_MS) {
+			throw state.initError
+		}
+		state.initError = null
 	}
 
 	// Return existing promise if initialization is in progress
-	if (initPromise) {
-		return initPromise
-	}
-
-	// Start initialization
-	initPromise = (async () => {
-		try {
+	if (!state.initPromise) {
+		// Start initialization
+		state.initPromise = (async () => {
 			const esbuildModule = await import("esbuild-wasm")
 
-			const wasmURL = await resolveBrowserWasmUrl()
 			const initOptions: esbuild.InitializeOptions = {
 				worker: false,
 			}
-			if (wasmURL) {
+			if (isBrowserRuntime) {
+				const wasmURL = await resolveBrowserWasmUrl()
+				if (!wasmURL) {
+					throw new Error("Failed to resolve esbuild WASM binary")
+				}
 				initOptions.wasmURL = wasmURL
 			}
-			await esbuildModule.initialize(initOptions)
+			try {
+				await esbuildModule.initialize(initOptions)
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err)
+				if (message.includes("Cannot call initialize more than once")) {
+					state.instance = esbuildModule
+					return esbuildModule
+				}
+				throw err
+			}
 
-			esbuildInstance = esbuildModule
+			state.instance = esbuildModule
 			return esbuildModule
-		} catch (err) {
-			initError = err instanceof Error ? err : new Error(String(err))
-			initPromise = null
-			throw initError
-		}
-	})()
+		})().catch((err) => {
+			state.initError = err instanceof Error ? err : new Error(String(err))
+			state.initErrorAt = Date.now()
+			state.initPromise = null
+			throw state.initError
+		})
+	}
 
-	return initPromise
+	try {
+		return await withTimeout(state.initPromise, INIT_TIMEOUT_MS, "esbuild initialization timed out")
+	} catch (err) {
+		if (err instanceof Error && err.name === "TimeoutError") {
+			throw err
+		}
+		throw err
+	}
 }
 
 /**
@@ -248,7 +299,7 @@ export async function compileSnippet(source: string, entryExport?: string): Prom
  * Useful for showing loading states.
  */
 export function isCompilerReady(): boolean {
-	return esbuildInstance !== null
+	return getEsbuildGlobalState().instance !== null
 }
 
 /**

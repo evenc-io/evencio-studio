@@ -4,16 +4,8 @@ import type {
 	SnippetPropsSchemaDefinition,
 	SnippetPropType,
 } from "@/types/asset-library"
+import { loadBabelParser } from "./babel-parser"
 import { expandSnippetSource } from "./source-files"
-
-let parserPromise: Promise<typeof import("@babel/parser")> | null = null
-
-const loadParser = async () => {
-	if (!parserPromise) {
-		parserPromise = import("@babel/parser")
-	}
-	return parserPromise
-}
 
 export const DEFAULT_SNIPPET_EXPORT = "default"
 
@@ -694,13 +686,17 @@ export const listSnippetComponentExports = async (
 	const normalizedSource = expandSnippetSource(source)
 	if (!normalizedSource.trim()) return []
 
-	const parser = await loadParser()
+	const parser = await loadBabelParser()
 	const ast = parser.parse(normalizedSource, {
 		sourceType: "module",
 		plugins: ["typescript", "jsx"],
 	})
 
 	const program = ast.program as { body: unknown[] }
+	return listSnippetComponentExportsFromProgram(program)
+}
+
+const listSnippetComponentExportsFromProgram = (program: { body: unknown[] }) => {
 	const exportEntries: SnippetComponentExport[] = []
 	const seen = new Set<string>()
 
@@ -815,7 +811,7 @@ export const getSnippetComponentSourceMap = async (
 	const normalizedSource = expandSnippetSource(source)
 	if (!normalizedSource.trim()) return {}
 
-	const parser = await loadParser()
+	const parser = await loadBabelParser()
 	const ast = parser.parse(normalizedSource, {
 		sourceType: "module",
 		plugins: ["typescript", "jsx"],
@@ -871,7 +867,7 @@ export const removeSnippetComponentExport = async (
 		return { source, removed: false, reason: "Default exports cannot be removed." }
 	}
 
-	const parser = await loadParser()
+	const parser = await loadBabelParser()
 	const ast = parser.parse(source, {
 		sourceType: "module",
 		plugins: ["typescript", "jsx"],
@@ -954,7 +950,7 @@ export const deriveSnippetPropsFromSource = async (
 	const normalizedSource = expandSnippetSource(source)
 	if (!normalizedSource.trim()) return emptyResult()
 
-	const parser = await loadParser()
+	const parser = await loadBabelParser()
 	const ast = parser.parse(normalizedSource, {
 		sourceType: "module",
 		plugins: ["typescript", "jsx"],
@@ -1077,26 +1073,14 @@ const collectExportNames = (program: { body: unknown[] }, functionMap: Map<strin
 	return exportNames
 }
 
-export const deriveSnippetPropsFromAllExports = async (
-	source: string,
-): Promise<{
+const deriveSnippetPropsFromProgram = (program: {
+	body: unknown[]
+}): {
 	propsSchema: SnippetPropsSchemaDefinition
 	defaultProps: SnippetProps
 	duplicateKeys: string[]
-}> => {
-	const normalizedSource = expandSnippetSource(source)
-	if (!normalizedSource.trim()) {
-		return { ...emptyResult(), duplicateKeys: [] }
-	}
-
-	const parser = await loadParser()
-	const ast = parser.parse(normalizedSource, {
-		sourceType: "module",
-		plugins: ["typescript", "jsx"],
-	})
-
+} => {
 	try {
-		const program = ast.program as { body: unknown[] }
 		const functionMap = buildFunctionMap(program)
 		const exportNames = collectExportNames(program, functionMap)
 		if (exportNames.length === 0) {
@@ -1167,4 +1151,31 @@ export const deriveSnippetPropsFromAllExports = async (
 	} catch {
 		return { ...emptyResult(), duplicateKeys: [] }
 	}
+}
+
+export const analyzeSnippetProgram = (program: { body: unknown[] }) => ({
+	exports: listSnippetComponentExportsFromProgram(program),
+	...deriveSnippetPropsFromProgram(program),
+})
+
+export const deriveSnippetPropsFromAllExports = async (
+	source: string,
+): Promise<{
+	propsSchema: SnippetPropsSchemaDefinition
+	defaultProps: SnippetProps
+	duplicateKeys: string[]
+}> => {
+	const normalizedSource = expandSnippetSource(source)
+	if (!normalizedSource.trim()) {
+		return { ...emptyResult(), duplicateKeys: [] }
+	}
+
+	const parser = await loadBabelParser()
+	const ast = parser.parse(normalizedSource, {
+		sourceType: "module",
+		plugins: ["typescript", "jsx"],
+	})
+
+	const program = ast.program as { body: unknown[] }
+	return deriveSnippetPropsFromProgram(program)
 }

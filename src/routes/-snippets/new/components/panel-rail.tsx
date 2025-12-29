@@ -24,6 +24,7 @@ interface PanelRailProps {
 	examplesOpen: boolean
 	importsOpen: boolean
 	historyOpen: boolean
+	settingsOpen: boolean
 	isFocusPanelOpen: boolean
 	onToggleEditor: () => void
 	onToggleDetails: () => void
@@ -31,6 +32,7 @@ interface PanelRailProps {
 	onToggleExamples: () => void
 	onToggleImports: () => void
 	onToggleHistory: () => void
+	onToggleSettings: () => void
 	exampleFilters: ExampleFilterId[]
 	importsFilters: ImportFilterId[]
 	onExampleFilterClick: (id: ExampleFilterId, event: MouseEvent<HTMLButtonElement>) => void
@@ -44,6 +46,7 @@ export function PanelRail({
 	examplesOpen,
 	importsOpen,
 	historyOpen,
+	settingsOpen,
 	isFocusPanelOpen,
 	onToggleEditor,
 	onToggleDetails,
@@ -51,6 +54,7 @@ export function PanelRail({
 	onToggleExamples,
 	onToggleImports,
 	onToggleHistory,
+	onToggleSettings,
 	exampleFilters,
 	importsFilters,
 	onExampleFilterClick,
@@ -166,10 +170,14 @@ export function PanelRail({
 						type="button"
 						variant="ghost"
 						size="icon"
-						className="h-10 w-10"
-						disabled
-						aria-label="Settings (coming soon)"
-						title="Settings (coming soon)"
+						className={cn(
+							"h-10 w-10",
+							settingsOpen && "border border-neutral-200 bg-white text-neutral-900",
+						)}
+						onClick={onToggleSettings}
+						aria-pressed={settingsOpen}
+						aria-label={settingsOpen ? "Hide settings panel" : "Show settings panel"}
+						title="Settings"
 					>
 						<Settings className="h-4 w-4" />
 					</Button>

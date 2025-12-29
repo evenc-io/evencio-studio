@@ -9,6 +9,7 @@ export function useSnippetPanels() {
 	const [examplesOpen, setExamplesOpen] = useState(false)
 	const [importsOpen, setImportsOpen] = useState(false)
 	const [historyOpen, setHistoryOpen] = useState(false)
+	const [settingsOpen, setSettingsOpen] = useState(false)
 	const [panelsHydrated, setPanelsHydrated] = useState(false)
 	const previousPanelsRef = useRef<PanelSnapshot | null>(null)
 	const isFocusPanelOpen = examplesOpen || importsOpen
@@ -21,6 +22,7 @@ export function useSnippetPanels() {
 			setExamplesOpen(stored.examplesOpen)
 			setImportsOpen(stored.importsOpen)
 			setHistoryOpen(stored.historyOpen)
+			setSettingsOpen(stored.settingsOpen)
 		}
 		setPanelsHydrated(true)
 	}, [])
@@ -33,8 +35,17 @@ export function useSnippetPanels() {
 			examplesOpen,
 			importsOpen,
 			historyOpen,
+			settingsOpen,
 		})
-	}, [detailsCollapsed, explorerCollapsed, examplesOpen, importsOpen, historyOpen, panelsHydrated])
+	}, [
+		detailsCollapsed,
+		explorerCollapsed,
+		examplesOpen,
+		importsOpen,
+		historyOpen,
+		settingsOpen,
+		panelsHydrated,
+	])
 
 	const openFocusPanel = (panel: "examples" | "imports") => {
 		if (!isFocusPanelOpen) {
@@ -84,6 +95,10 @@ export function useSnippetPanels() {
 		setHistoryOpen((prev) => !prev)
 	}
 
+	const toggleSettingsPanel = () => {
+		setSettingsOpen((prev) => !prev)
+	}
+
 	return {
 		detailsCollapsed,
 		setDetailsCollapsed,
@@ -95,9 +110,12 @@ export function useSnippetPanels() {
 		setImportsOpen,
 		historyOpen,
 		setHistoryOpen,
+		settingsOpen,
+		setSettingsOpen,
 		isFocusPanelOpen,
 		toggleExamplesPanel,
 		toggleImportsPanel,
 		toggleHistoryPanel,
+		toggleSettingsPanel,
 	}
 }

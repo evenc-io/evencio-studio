@@ -80,6 +80,7 @@ export function SnippetSourceEditorDialog({
 		source,
 		defaultProps: asset?.defaultProps,
 		debounceMs: 500,
+		engineKey: "snippet-compile-dialog",
 	})
 
 	// Reset source when dialog opens with new asset

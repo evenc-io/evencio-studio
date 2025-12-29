@@ -1,22 +1,12 @@
 import { nanoid } from "nanoid"
 import { create } from "zustand"
-import {
-	createAssetLibraryService,
-	createIndexedDbAssetRegistry,
-	SAMPLE_ASSETS,
-	SAMPLE_COLLECTION,
-	SAMPLE_TAG,
-} from "@/lib/asset-library"
-import {
-	DEFAULT_SNIPPET_EXPORT,
-	deriveSnippetPropsFromSource,
-	listSnippetComponentExports,
-} from "@/lib/snippets"
+import type { AssetRegistry } from "@/lib/asset-library/registry"
 import {
 	getSnippetViewportError,
 	SNIPPET_COMPONENT_LIMITS,
 	SNIPPET_SOURCE_MAX_CHARS,
 } from "@/lib/snippets/constraints"
+import type { SnippetComponentExport } from "@/lib/snippets/source-derived"
 import type {
 	Asset,
 	AssetAttribution,
@@ -35,17 +25,46 @@ import type {
 	SnippetViewport,
 } from "@/types/asset-library"
 
+const DEFAULT_SNIPPET_EXPORT = "default"
+
 const DEMO_ACCESS_CONTEXT = {
 	orgId: "org_demo",
 	eventId: "event_demo",
 	userId: "user_demo",
 }
 
-const registry = createIndexedDbAssetRegistry()
-const service = createAssetLibraryService(registry, {
-	accessContext: DEMO_ACCESS_CONTEXT,
-	scopedAccessEnabled: true,
-})
+type AssetLibraryService = ReturnType<
+	typeof import("@/lib/asset-library/service").createAssetLibraryService
+>
+
+let registryPromise: Promise<AssetRegistry> | null = null
+let servicePromise: Promise<AssetLibraryService> | null = null
+
+const getRegistry = async () => {
+	if (!registryPromise) {
+		registryPromise = (async () => {
+			const { createIndexedDbAssetRegistry } = await import(
+				"@/lib/asset-library/registry-indexeddb"
+			)
+			return createIndexedDbAssetRegistry()
+		})()
+	}
+	return registryPromise
+}
+
+const getAssetLibraryService = async () => {
+	if (!servicePromise) {
+		servicePromise = (async () => {
+			const registry = await getRegistry()
+			const { createAssetLibraryService } = await import("@/lib/asset-library/service")
+			return createAssetLibraryService(registry, {
+				accessContext: DEMO_ACCESS_CONTEXT,
+				scopedAccessEnabled: true,
+			})
+		})()
+	}
+	return servicePromise
+}
 
 const normalizeUrl = (value?: string | null) => {
 	if (!value) return null
@@ -130,7 +149,11 @@ const toAssetStorageObject = async (file: File) => {
 	return { bytes, contentType: inferredType }
 }
 
-const ensureTagIds = async (tagNames: string[], scope: AssetScopeRef) => {
+const ensureTagIds = async (
+	service: AssetLibraryService,
+	tagNames: string[],
+	scope: AssetScopeRef,
+) => {
 	const cleaned = Array.from(new Set(tagNames.map((tag) => tag.trim()).filter(Boolean)))
 	if (cleaned.length === 0) {
 		throw new Error("At least one tag is required")
@@ -154,7 +177,11 @@ const ensureTagIds = async (tagNames: string[], scope: AssetScopeRef) => {
 	return tagIds
 }
 
-const resolvePromotedTagIds = async (tagIds: string[], targetScope: AssetScopeRef) => {
+const resolvePromotedTagIds = async (
+	service: AssetLibraryService,
+	tagIds: string[],
+	targetScope: AssetScopeRef,
+) => {
 	if (tagIds.length === 0) return []
 
 	const tags = await service.listTags()
@@ -166,12 +193,17 @@ const resolvePromotedTagIds = async (tagIds: string[], targetScope: AssetScopeRe
 
 	const names = tagIds.map((id) => nameById.get(id)).filter((name): name is string => Boolean(name))
 
-	return ensureTagIds(names, targetScope)
+	return ensureTagIds(service, names, targetScope)
 }
 
 async function seedAssetLibraryIfEmpty() {
+	const registry = await getRegistry()
 	const existingAssets = await registry.metadata.listAssets()
 	if (existingAssets.length > 0) return
+
+	const { SAMPLE_ASSETS, SAMPLE_COLLECTION, SAMPLE_TAG } = await import(
+		"@/lib/asset-library/sample-data"
+	)
 
 	await registry.metadata.upsertTag(SAMPLE_TAG)
 	await registry.metadata.upsertCollection(SAMPLE_COLLECTION)
@@ -272,6 +304,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	...initialState,
 
 	syncLibrary: async (includeHidden) => {
+		const service = await getAssetLibraryService()
 		const resolvedIncludeHidden = includeHidden ?? get().includeHidden
 		const [assets, tags, collections, favorites] = await Promise.all([
 			service.listAssets({ includeHidden: resolvedIncludeHidden }),
@@ -283,6 +316,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	loadLibrary: async (includeHidden) => {
+		const service = await getAssetLibraryService()
 		const resolvedIncludeHidden = includeHidden ?? get().includeHidden
 		set({ isLoading: true, error: null, includeHidden: resolvedIncludeHidden })
 		try {
@@ -310,6 +344,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	toggleFavorite: async (assetId) => {
+		const service = await getAssetLibraryService()
 		try {
 			const { favorites } = get()
 			const existing = favorites.find((favorite) => favorite.assetId === assetId)
@@ -328,8 +363,9 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	createAssetFromUpload: async (input) => {
+		const service = await getAssetLibraryService()
 		const scopeRef = resolveScopeRef(input.scope)
-		const tagIds = await ensureTagIds(input.tagNames, scopeRef)
+		const tagIds = await ensureTagIds(service, input.tagNames, scopeRef)
 		const metadata = {
 			title: input.title,
 			description: input.description ?? null,
@@ -361,6 +397,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	registerSnippetAsset: async (input) => {
+		const service = await getAssetLibraryService()
 		if (input.viewport) {
 			const viewportError = getSnippetViewportError(input.viewport)
 			if (viewportError) {
@@ -368,7 +405,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 			}
 		}
 		const scopeRef = resolveScopeRef(input.scope)
-		const tagIds = await ensureTagIds(input.tagNames, scopeRef)
+		const tagIds = await ensureTagIds(service, input.tagNames, scopeRef)
 		const metadata = {
 			title: input.title,
 			description: input.description ?? null,
@@ -408,6 +445,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	registerCustomSnippetAsset: async (input) => {
+		const service = await getAssetLibraryService()
 		if (input.source.length > SNIPPET_SOURCE_MAX_CHARS) {
 			throw new Error(`Snippet source is too large (limit ${SNIPPET_SOURCE_MAX_CHARS} characters).`)
 		}
@@ -418,11 +456,14 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 			}
 		}
 		const scopeRef = resolveScopeRef(input.scope)
-		const tagIds = await ensureTagIds(input.tagNames, scopeRef)
+		const tagIds = await ensureTagIds(service, input.tagNames, scopeRef)
 		let derived: { propsSchema: SnippetPropsSchemaDefinition; defaultProps: SnippetProps }
 		const entryExport = input.entryExport ?? DEFAULT_SNIPPET_EXPORT
-		let componentExports: Awaited<ReturnType<typeof listSnippetComponentExports>> = []
+		let componentExports: SnippetComponentExport[] = []
 		try {
+			const { deriveSnippetPropsFromSource, listSnippetComponentExports } = await import(
+				"@/lib/snippets/source-derived"
+			)
 			componentExports = await listSnippetComponentExports(input.source)
 			if (componentExports.length === 0) {
 				throw new Error("Snippet must export at least one component.")
@@ -491,6 +532,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	updateCustomSnippetAsset: async (assetId, input) => {
+		const service = await getAssetLibraryService()
 		const { assets, syncLibrary } = get()
 		const existing = assets.find((asset) => asset.id === assetId)
 		if (!existing) {
@@ -526,8 +568,11 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 			targetScope === currentScope
 				? existing.scope
 				: resolvePromotionScope(existing.scope, targetScope)
-		const tagIds = await ensureTagIds(input.tagNames, nextScopeRef)
+		const tagIds = await ensureTagIds(service, input.tagNames, nextScopeRef)
 
+		const { deriveSnippetPropsFromSource, listSnippetComponentExports } = await import(
+			"@/lib/snippets/source-derived"
+		)
 		const componentExports = await listSnippetComponentExports(input.source)
 		if (componentExports.length === 0) {
 			throw new Error("Snippet must export at least one component.")
@@ -594,6 +639,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	updateSnippetSource: async (assetId, source) => {
+		const service = await getAssetLibraryService()
 		const { assets, syncLibrary } = get()
 		const existing = assets.find((asset) => asset.id === assetId)
 		if (!existing) {
@@ -606,6 +652,9 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 			throw new Error(`Snippet source is too large (limit ${SNIPPET_SOURCE_MAX_CHARS} characters).`)
 		}
 
+		const { deriveSnippetPropsFromSource, listSnippetComponentExports } = await import(
+			"@/lib/snippets/source-derived"
+		)
 		const componentExports = await listSnippetComponentExports(source)
 		if (componentExports.length === 0) {
 			throw new Error("Snippet must export at least one component.")
@@ -657,6 +706,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	promoteAssetScope: async (assetId, targetScope) => {
+		const service = await getAssetLibraryService()
 		const { assets, syncLibrary } = get()
 		const existing = assets.find((asset) => asset.id === assetId)
 		if (!existing) {
@@ -664,7 +714,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 		}
 
 		const nextScope = resolvePromotionScope(existing.scope, targetScope)
-		const promotedTagIds = await resolvePromotedTagIds(existing.metadata.tags, nextScope)
+		const promotedTagIds = await resolvePromotedTagIds(service, existing.metadata.tags, nextScope)
 		const updated = await service.updateAsset(assetId, {
 			scope: nextScope,
 			metadata: {
@@ -687,6 +737,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	clearError: () => set({ error: null }),
 
 	hideAsset: async (assetId) => {
+		const service = await getAssetLibraryService()
 		await service.hideAsset(assetId)
 		const { syncLibrary } = get()
 		if (syncLibrary) {
@@ -695,6 +746,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	unhideAsset: async (assetId) => {
+		const service = await getAssetLibraryService()
 		await service.unhideAsset(assetId)
 		const { syncLibrary } = get()
 		if (syncLibrary) {
@@ -703,6 +755,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 	},
 
 	deleteAsset: async (assetId) => {
+		const service = await getAssetLibraryService()
 		await service.deleteAsset(assetId)
 		const { syncLibrary, assets } = get()
 		const nextAssets = assets.filter((asset) => asset.id !== assetId)

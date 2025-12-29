@@ -4,8 +4,14 @@ import { useEffect, useRef } from "react"
 import { Logo } from "../../components/brand/logo"
 import { Navbar } from "../../components/layout/navbar"
 import { Button } from "../../components/ui/button"
+import { ClientOnly } from "../../components/ui/client-only"
 import { downloadBlob, exportCanvas, getFilename } from "../../lib/export"
-import { SCREEN_GUARD_DEFAULTS, useScreenGuard } from "../../lib/screen-guard"
+import {
+	SCREEN_GUARD_DEFAULTS,
+	SCREEN_GUARD_EMPTY,
+	type ScreenGateInfo,
+	useScreenGuard,
+} from "../../lib/screen-guard"
 import { flushAutosave, generateThumbnail } from "../../lib/storage"
 import { useEditorStore } from "../../stores/editor-store"
 import { useProjectsStore } from "../../stores/projects-store"
@@ -114,15 +120,15 @@ function ProjectLayout() {
 		}
 	}
 
-	if (screenGate.status !== "supported") {
-		const isChecking = screenGate.status === "unknown"
-		const showMetrics = !isChecking && screenGate.viewport.width > 0
+	const renderScreenGuard = (gate: ScreenGateInfo) => {
+		const isChecking = gate.status === "unknown"
+		const showMetrics = !isChecking && gate.viewport.width > 0
 
 		return (
 			<div className="flex h-screen flex-col items-center justify-center bg-white px-6">
 				<div
 					className="flex w-full max-w-xl flex-col items-center gap-4 text-center"
-					role={screenGate.status === "unsupported" ? "alert" : undefined}
+					role={gate.status === "unsupported" ? "alert" : undefined}
 				>
 					<Logo size="sm" href="/" animateOnHover />
 					<div className="flex h-12 w-12 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50">
@@ -149,7 +155,7 @@ function ProjectLayout() {
 								Minimum: {SCREEN_GUARD_DEFAULTS.minViewportWidth}x
 								{SCREEN_GUARD_DEFAULTS.minViewportHeight} viewport and{" "}
 								{SCREEN_GUARD_DEFAULTS.minScreenWidth}x{SCREEN_GUARD_DEFAULTS.minScreenHeight}{" "}
-								screen. Current viewport: {screenGate.viewport.width}x{screenGate.viewport.height}.
+								screen. Current viewport: {gate.viewport.width}x{gate.viewport.height}.
 							</p>
 						)}
 					</div>
@@ -161,44 +167,50 @@ function ProjectLayout() {
 		)
 	}
 
-	// Show loading state
-	if (isLoading) {
-		return (
-			<div className="flex h-screen items-center justify-center bg-white">
-				<div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-900" />
-			</div>
-		)
-	}
+	const renderContent = () => {
+		if (isLoading) {
+			return (
+				<div className="flex h-screen items-center justify-center bg-white">
+					<div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-200 border-t-neutral-900" />
+				</div>
+			)
+		}
 
-	// Show error state
-	if (error || !currentProject) {
+		if (error || !currentProject) {
+			return (
+				<div className="flex h-screen flex-col items-center justify-center gap-4 bg-white">
+					<p className="text-neutral-500">{error || "Project not found"}</p>
+					<button
+						type="button"
+						onClick={() => navigate({ to: "/" })}
+						className="text-sm text-neutral-900 underline"
+					>
+						Back to Dashboard
+					</button>
+				</div>
+			)
+		}
+
 		return (
-			<div className="flex h-screen flex-col items-center justify-center gap-4 bg-white">
-				<p className="text-neutral-500">{error || "Project not found"}</p>
-				<button
-					type="button"
-					onClick={() => navigate({ to: "/" })}
-					className="text-sm text-neutral-900 underline"
-				>
-					Back to Dashboard
-				</button>
+			<div className="min-h-screen bg-white">
+				<Navbar
+					variant="editor"
+					projectName={currentProject.name}
+					onProjectNameChange={handleProjectNameChange}
+					onSave={handleSave}
+					isSaving={false}
+					hasUnsavedChanges={isDirty || pendingSave}
+					onExport={handleExport}
+					isExporting={isExporting}
+				/>
+				<Outlet />
 			</div>
 		)
 	}
 
 	return (
-		<div className="min-h-screen bg-white">
-			<Navbar
-				variant="editor"
-				projectName={currentProject.name}
-				onProjectNameChange={handleProjectNameChange}
-				onSave={handleSave}
-				isSaving={false}
-				hasUnsavedChanges={isDirty || pendingSave}
-				onExport={handleExport}
-				isExporting={isExporting}
-			/>
-			<Outlet />
-		</div>
+		<ClientOnly fallback={renderScreenGuard(SCREEN_GUARD_EMPTY)}>
+			{screenGate.status !== "supported" ? renderScreenGuard(screenGate) : renderContent()}
+		</ClientOnly>
 	)
 }

@@ -33,6 +33,7 @@ export interface SnippetInspectTextRequest extends SnippetInspectTarget {
 }
 
 export type SnippetTextQuote = "'" | '"' | null
+export type SnippetElementContext = "jsx" | "expression"
 
 type SnippetLineSegment =
 	| {
@@ -149,6 +150,13 @@ type SnippetElementMatch = {
 }
 
 const isJsxNodeType = (type: string) => type === "JSXElement" || type === "JSXFragment"
+
+const toTextRangeFromLoc = (loc: SourceLocation): SnippetTextRange => ({
+	startLine: loc.start.line,
+	startColumn: loc.start.column + 1,
+	endLine: loc.end.line,
+	endColumn: loc.end.column + 1,
+})
 
 const isWithinLocation = (loc: SourceLocation, line: number, column: number) => {
 	if (line < loc.start.line || line > loc.end.line) return false
@@ -280,13 +288,6 @@ export const createSnippetElementLocator = (source: string) => {
 		}
 	}
 
-	const toTextRange = (loc: SourceLocation): SnippetTextRange => ({
-		startLine: loc.start.line,
-		startColumn: loc.start.column + 1,
-		endLine: loc.end.line,
-		endColumn: loc.end.column + 1,
-	})
-
 	const findMatch = (lineNumber: number, columnNumber = 1): SnippetElementMatch | null => {
 		if (!ast || jsxNodes.length === 0) return null
 		const line = Math.max(1, Math.floor(lineNumber))
@@ -321,14 +322,90 @@ export const createSnippetElementLocator = (source: string) => {
 		return {
 			startLine: best.loc.start.line,
 			endLine: best.loc.end.line,
-			textRanges: textRanges.slice(0, MAX_TEXT_RANGES).map(toTextRange),
-			elementRange: toTextRange(best.loc),
+			textRanges: textRanges.slice(0, MAX_TEXT_RANGES).map(toTextRangeFromLoc),
+			elementRange: toTextRangeFromLoc(best.loc),
 			elementType,
 			elementName,
 		}
 	}
 
 	return { findMatch }
+}
+
+export const resolveSnippetElementContext = (
+	source: string,
+	range: SnippetTextRange,
+): SnippetElementContext | null => {
+	if (!source.trim()) return null
+	let ast: ReturnType<typeof parse> | null = null
+
+	try {
+		ast = parse(source, {
+			sourceType: "module",
+			plugins: ["typescript", "jsx"],
+			errorRecovery: true,
+			allowReturnOutsideFunction: true,
+		})
+	} catch {
+		return null
+	}
+
+	let bestLoc: SourceLocation | null = null
+	let bestParentType: string | null = null
+
+	const containsRange = (loc: SourceLocation) => {
+		const startColumn = Math.max(0, range.startColumn - 1)
+		const endColumn = Math.max(0, range.endColumn - 1)
+		return (
+			isWithinLocation(loc, range.startLine, startColumn) &&
+			isWithinLocation(loc, range.endLine, endColumn)
+		)
+	}
+
+	const visit = (node: unknown, parentType: string | null) => {
+		if (!node || typeof node !== "object") return
+		const record = node as Record<string, unknown>
+		const type = record.type
+		if (typeof type !== "string") return
+
+		const loc = record.loc as SourceLocation | null | undefined
+		if (loc && isJsxNodeType(type) && containsRange(loc)) {
+			if (!bestLoc) {
+				bestLoc = loc
+				bestParentType = parentType
+			} else {
+				const bestScore = getSpanScore(bestLoc)
+				const candidateScore = getSpanScore(loc)
+				const isSmaller =
+					candidateScore.lineSpan < bestScore.lineSpan ||
+					(candidateScore.lineSpan === bestScore.lineSpan &&
+						candidateScore.columnSpan < bestScore.columnSpan)
+				if (isSmaller) {
+					bestLoc = loc
+					bestParentType = parentType
+				}
+			}
+		}
+
+		for (const value of Object.values(record)) {
+			if (!value) continue
+			if (Array.isArray(value)) {
+				for (const entry of value) {
+					visit(entry, type)
+				}
+			} else if (typeof value === "object") {
+				visit(value, type)
+			}
+		}
+	}
+
+	visit(ast, null)
+
+	if (!bestLoc) return null
+	if (bestParentType === "JSXElement" || bestParentType === "JSXFragment") {
+		return "jsx"
+	}
+	return "expression"
 }
 
 const getOffsetForPosition = (source: string, lineNumber: number, columnNumber: number) => {

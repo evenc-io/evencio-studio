@@ -10,6 +10,7 @@ count.txt
 .wrangler
 .output
 .vinxi
+.zig-cache
 todos.json
 
 # Claude Code config (may contain corporate info)

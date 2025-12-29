@@ -1,10 +1,12 @@
 import { compile } from "tailwindcss"
 import tailwindIndexCss from "tailwindcss/index.css?raw"
+import { scanTailwindCandidatesWasm } from "@/lib/wasm/snippet-wasm"
 import appStylesRaw from "@/styles.css?raw"
+import { loadBabelParser } from "./babel-parser"
 import { SNIPPET_TAILWIND_MAX_CANDIDATES, SNIPPET_TAILWIND_MAX_CSS_CHARS } from "./constraints"
 import { expandSnippetSource } from "./source-files"
 
-let compilerPromise: ReturnType<typeof compile> | null = null
+let compilerPromise: Promise<Awaited<ReturnType<typeof compile>>> | null = null
 
 const stripImports = (css: string) =>
 	css
@@ -16,20 +18,11 @@ const TAILWIND_INPUT_CSS = `${tailwindIndexCss}\n${stripImports(appStylesRaw)}`
 
 const cssCache = new Map<string, string>()
 
-const getCompiler = (): ReturnType<typeof compile> => {
+const getCompiler = async (): Promise<Awaited<ReturnType<typeof compile>>> => {
 	if (!compilerPromise) {
 		compilerPromise = compile(TAILWIND_INPUT_CSS)
 	}
 	return compilerPromise
-}
-
-let parserPromise: Promise<typeof import("@babel/parser")> | null = null
-
-const loadParser = async () => {
-	if (!parserPromise) {
-		parserPromise = import("@babel/parser")
-	}
-	return parserPromise
 }
 
 const isNodeType = (node: unknown, type: string) =>
@@ -74,7 +67,7 @@ const extractStaticString = (node: unknown): string | null => {
 
 const splitCandidates = (value: string) => value.split(/\s+/).map((entry) => entry.trim())
 
-export const extractTailwindCandidatesFromSource = async (source: string): Promise<string[]> => {
+export const extractTailwindCandidatesFromAst = (ast: unknown): string[] => {
 	const candidates = new Set<string>()
 
 	const addCandidates = (value: string) => {
@@ -83,72 +76,84 @@ export const extractTailwindCandidatesFromSource = async (source: string): Promi
 		}
 	}
 
-	try {
-		const normalizedSource = expandSnippetSource(source)
-		const parser = await loadParser()
-		const ast = parser.parse(normalizedSource, {
-			sourceType: "module",
-			plugins: ["typescript", "jsx"],
-		})
+	const visit = (node: unknown) => {
+		if (!node) return
+		if (Array.isArray(node)) {
+			for (const child of node) visit(child)
+			return
+		}
+		if (typeof node !== "object") return
 
-		const visit = (node: unknown) => {
-			if (!node) return
-			if (Array.isArray(node)) {
-				for (const child of node) visit(child)
-				return
-			}
-			if (typeof node !== "object") return
-
-			if (isNodeType(node, "JSXAttribute")) {
-				const attribute = node as { name?: unknown; value?: unknown }
-				const name = getJsxAttributeName(attribute.name)
-				if (name === "className" || name === "class") {
-					const value = attribute.value
-					if (isNodeType(value, "StringLiteral")) {
-						addCandidates((value as { value: string }).value)
-					} else if (value && getNodeType(value) === "JSXExpressionContainer") {
-						const staticValue = extractStaticString(value)
-						if (staticValue) addCandidates(staticValue)
-					}
+		if (isNodeType(node, "JSXAttribute")) {
+			const attribute = node as { name?: unknown; value?: unknown }
+			const name = getJsxAttributeName(attribute.name)
+			if (name === "className" || name === "class") {
+				const value = attribute.value
+				if (isNodeType(value, "StringLiteral")) {
+					addCandidates((value as { value: string }).value)
+				} else if (value && getNodeType(value) === "JSXExpressionContainer") {
+					const staticValue = extractStaticString(value)
+					if (staticValue) addCandidates(staticValue)
 				}
-			}
-
-			for (const [key, value] of Object.entries(node)) {
-				if (
-					key === "loc" ||
-					key === "comments" ||
-					key === "leadingComments" ||
-					key === "trailingComments"
-				) {
-					continue
-				}
-				if (key === "parent") continue
-				if (key === "type" && typeof value === "string") continue
-				visit(value)
 			}
 		}
 
-		visit(ast)
-	} catch {
-		return []
+		for (const [key, value] of Object.entries(node)) {
+			if (
+				key === "loc" ||
+				key === "comments" ||
+				key === "leadingComments" ||
+				key === "trailingComments"
+			) {
+				continue
+			}
+			if (key === "parent") continue
+			if (key === "type" && typeof value === "string") continue
+			visit(value)
+		}
 	}
+
+	visit(ast)
 
 	return Array.from(candidates)
 }
 
-export const buildSnippetTailwindCss = async (source: string): Promise<string> => {
-	const candidates = await extractTailwindCandidatesFromSource(source)
-	const normalized = candidates.filter(Boolean).sort()
-	const cacheKey = normalized.join(" ")
-
-	if (cssCache.has(cacheKey)) {
-		return cssCache.get(cacheKey) ?? ""
+export const extractTailwindCandidatesFromSource = async (source: string): Promise<string[]> => {
+	try {
+		const normalizedSource = expandSnippetSource(source)
+		const parser = await loadBabelParser()
+		const ast = parser.parse(normalizedSource, {
+			sourceType: "module",
+			plugins: ["typescript", "jsx"],
+		})
+		return extractTailwindCandidatesFromAst(ast)
+	} catch {
+		return []
 	}
+}
+
+export const extractTailwindCandidatesFromSourceWasm = async (
+	source: string,
+	options?: { expanded?: boolean },
+): Promise<string[] | null> => {
+	const normalizedSource = options?.expanded ? source : expandSnippetSource(source)
+	return scanTailwindCandidatesWasm(normalizedSource, { expanded: true })
+}
+
+export const buildSnippetTailwindCssFromCandidates = async (
+	candidates: string[],
+): Promise<string> => {
+	const normalized = candidates.filter(Boolean).sort()
 
 	if (normalized.length > SNIPPET_TAILWIND_MAX_CANDIDATES) {
 		throw new Error(
 			`Snippet uses too many Tailwind classes (limit ${SNIPPET_TAILWIND_MAX_CANDIDATES}).`,
 		)
+	}
+
+	const cacheKey = normalized.join(" ")
+	if (cssCache.has(cacheKey)) {
+		return cssCache.get(cacheKey) ?? ""
 	}
 
 	const compiler = await getCompiler()
@@ -167,4 +172,9 @@ export const buildSnippetTailwindCss = async (source: string): Promise<string> =
 	cssCache.set(cacheKey, css)
 
 	return css
+}
+
+export const buildSnippetTailwindCss = async (source: string): Promise<string> => {
+	const candidates = await extractTailwindCandidatesFromSource(source)
+	return buildSnippetTailwindCssFromCandidates(candidates)
 }

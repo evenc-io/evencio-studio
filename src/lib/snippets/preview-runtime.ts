@@ -110,6 +110,14 @@ const PREVIEW_FONT_SRC = uniqueValues([
 	...TRUSTED_FONT_PROVIDERS.map((provider) => provider.fontSrc),
 ]).join(" ")
 
+const safeStringifyProps = (props: Record<string, unknown>) => {
+	try {
+		return JSON.stringify(props ?? {})
+	} catch {
+		return "{}"
+	}
+}
+
 /**
  * Generate the srcdoc HTML for the preview iframe.
  *
@@ -123,12 +131,14 @@ export function generatePreviewSrcdoc(
 	props: Record<string, unknown>,
 	dimensions: PreviewDimensions,
 	tailwindCss?: string,
+	propsJsonOverride?: string,
 ): string {
 	const nonce =
 		typeof crypto !== "undefined" && "randomUUID" in crypto
 			? crypto.randomUUID()
 			: Math.random().toString(36).slice(2)
-	const propsJson = JSON.stringify(props)
+	const propsJson =
+		typeof propsJsonOverride === "string" ? propsJsonOverride : safeStringifyProps(props)
 	const escapedTailwindCss = tailwindCss?.replace(/<\/style/gi, "<\\/style")
 
 	// Escape script content to prevent XSS via props
@@ -140,11 +150,11 @@ export function generatePreviewSrcdoc(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src 'none'; script-src 'nonce-${nonce}'; style-src ${PREVIEW_STYLE_SRC}; img-src data: blob:; font-src ${PREVIEW_FONT_SRC};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; connect-src 'none'; script-src 'nonce-${nonce}'; style-src ${PREVIEW_STYLE_SRC}; img-src data: blob:; font-src ${PREVIEW_FONT_SRC};">
   <title>Snippet Preview</title>
   ${PREVIEW_FONT_LINKS}
   <style>${PREVIEW_STYLES}</style>
-  ${escapedTailwindCss ? `<style>${escapedTailwindCss}</style>` : ""}
+  <style id="snippet-tailwind">${escapedTailwindCss ?? ""}</style>
 </head>
 <body>
   <div id="root">
@@ -272,6 +282,12 @@ export function generatePreviewSrcdoc(
       };
 
       window.React = React;
+
+      const tailwindStyle = document.getElementById("snippet-tailwind");
+      const setTailwindCss = (css) => {
+        if (!tailwindStyle) return;
+        tailwindStyle.textContent = typeof css === "string" ? css : "";
+      };
 
       const INSPECT_HOVER = "#FF0066";
       const INSPECT_SELECTED = "#0066FF";
@@ -480,13 +496,19 @@ export function generatePreviewSrcdoc(
         sendInspectMessage("inspect-escape", null);
       };
 
-      window.addEventListener("message", (event) => {
-        const data = event.data;
-        if (!data || typeof data.type !== "string") return;
-        if (data.type === "inspect-toggle") {
-          setInspectEnabled(Boolean(data.enabled));
-        }
-      });
+      const showRenderError = (error) => {
+        const message = error && error.message ? error.message : "Unknown error";
+        parent.postMessage({
+          type: 'render-error',
+          error: message,
+          stack: error && error.stack ? error.stack : undefined
+        }, '*');
+
+        const container = document.getElementById('snippet-container');
+        if (!container) return;
+        container.innerHTML = '<div class="error-display"><strong>Execution Error</strong><pre>' +
+          message + '</pre></div>';
+      };
 
       // Execute compiled snippet code
       ${escapedCode}
@@ -495,24 +517,59 @@ export function generatePreviewSrcdoc(
       const SnippetComponent = window.__SNIPPET_COMPONENT__;
       const exportError = window.__SNIPPET_COMPONENT_ERROR__;
 
-      if (exportError) {
-        throw new Error(exportError);
-      }
+      const normalizeProps = (value) => {
+        if (value && typeof value === "object") return value;
+        if (typeof value === "string") {
+          try {
+            const parsed = JSON.parse(value);
+            if (parsed && typeof parsed === "object") return parsed;
+          } catch {
+            return {};
+          }
+        }
+        return {};
+      };
 
-      if (!SnippetComponent) {
-        throw new Error('No export found. Snippet must export a React component.');
-      }
+      const renderWithProps = (nextProps) => {
+        try {
+          if (exportError) {
+            throw new Error(exportError);
+          }
+          if (!SnippetComponent) {
+            throw new Error('No export found. Snippet must export a React component.');
+          }
+          const container = document.getElementById('snippet-container');
+          if (!container) return;
+          container.innerHTML = "";
+          const props = normalizeProps(nextProps);
+          const output = typeof SnippetComponent === "function"
+            ? SnippetComponent(props)
+            : SnippetComponent;
+          renderNode(output, container);
+          parent.postMessage({ type: 'render-success' }, '*');
+        } catch (error) {
+          showRenderError(error);
+        }
+      };
 
-      // Props from parent
-      const props = ${escapedProps};
+      window.addEventListener("message", (event) => {
+        const data = event.data;
+        if (!data || typeof data.type !== "string") return;
+        if (data.type === "inspect-toggle") {
+          setInspectEnabled(Boolean(data.enabled));
+          return;
+        }
+        if (data.type === "tailwind-update") {
+          setTailwindCss(data.css);
+          return;
+        }
+        if (data.type === "props-update") {
+          renderWithProps(data.propsJson ?? data.props);
+        }
+      });
 
-      // Mount using the lightweight renderer
-      const container = document.getElementById('snippet-container');
-      container.innerHTML = "";
-      const output = typeof SnippetComponent === "function" ? SnippetComponent(props) : SnippetComponent;
-      renderNode(output, container);
-
-      parent.postMessage({ type: 'render-success' }, '*');
+      // Initial render with props from parent
+      renderWithProps(${escapedProps});
     } catch (error) {
       // Handle execution errors
       parent.postMessage({
