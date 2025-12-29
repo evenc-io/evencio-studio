@@ -262,7 +262,10 @@ export function useSnippetCompiler({
 					setErrors([])
 					setWarnings(result.warnings)
 					if (enableTailwindCss) {
-						setTailwindCss(effectiveAnalysis?.tailwindCss ?? null)
+						const nextTailwind = effectiveAnalysis?.tailwindCss ?? null
+						if (nextTailwind !== null) {
+							setTailwindCss(nextTailwind)
+						}
 					}
 				} else {
 					if (!isMountedRef.current) return
