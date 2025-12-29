@@ -73,13 +73,9 @@ async function getEsbuild(): Promise<typeof esbuild> {
 	}
 
 	// Return existing promise if initialization is in progress
-	if (initPromise) {
-		return initPromise
-	}
-
-	// Start initialization
-	initPromise = withTimeout(
-		(async () => {
+	if (!initPromise) {
+		// Start initialization
+		initPromise = (async () => {
 			const esbuildModule = await import("esbuild-wasm")
 
 			const initOptions: esbuild.InitializeOptions = {
@@ -92,21 +88,35 @@ async function getEsbuild(): Promise<typeof esbuild> {
 				}
 				initOptions.wasmURL = wasmURL
 			}
-			await esbuildModule.initialize(initOptions)
+			try {
+				await esbuildModule.initialize(initOptions)
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err)
+				if (message.includes("Cannot call initialize more than once")) {
+					esbuildInstance = esbuildModule
+					return esbuildModule
+				}
+				throw err
+			}
 
 			esbuildInstance = esbuildModule
 			return esbuildModule
-		})(),
-		INIT_TIMEOUT_MS,
-		"esbuild initialization timed out",
-	).catch((err) => {
-		initError = err instanceof Error ? err : new Error(String(err))
-		initErrorAt = Date.now()
-		initPromise = null
-		throw initError
-	})
+		})().catch((err) => {
+			initError = err instanceof Error ? err : new Error(String(err))
+			initErrorAt = Date.now()
+			initPromise = null
+			throw initError
+		})
+	}
 
-	return initPromise
+	try {
+		return await withTimeout(initPromise, INIT_TIMEOUT_MS, "esbuild initialization timed out")
+	} catch (err) {
+		if (err instanceof Error && err.name === "TimeoutError") {
+			throw err
+		}
+		throw err
+	}
 }
 
 /**

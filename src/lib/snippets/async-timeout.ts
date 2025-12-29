@@ -8,7 +8,9 @@ export const withTimeout = <T>(
 	}
 	return new Promise<T>((resolve, reject) => {
 		const timer = setTimeout(() => {
-			reject(new Error(message))
+			const timeoutError = new Error(message)
+			timeoutError.name = "TimeoutError"
+			reject(timeoutError)
 		}, timeoutMs)
 		promise.then(
 			(value) => {

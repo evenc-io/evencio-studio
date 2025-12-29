@@ -16,6 +16,19 @@ type PendingRequest = {
 	reject: (reason?: unknown) => void
 }
 
+const isEngineError = (error: unknown): boolean =>
+	Boolean(error && typeof error === "object" && "engineError" in error)
+
+const toEngineError = (payload: { error: string; stack?: string }): Error => {
+	const err = new Error(payload.error)
+	err.name = "EngineError"
+	if (payload.stack) {
+		err.stack = payload.stack
+	}
+	;(err as Error & { engineError?: boolean }).engineError = true
+	return err
+}
+
 let workerPromise: Promise<Worker> | null = null
 let workerInstance: Worker | null = null
 let workerUnhealthy = false
@@ -72,7 +85,7 @@ const getWorker = async () => {
 					if (!handler) return
 					pending.delete(data.id)
 					if (data.type === "error") {
-						handler.reject(new Error(data.error))
+						handler.reject(toEngineError(data))
 						return
 					}
 					handler.resolve(data)
@@ -138,8 +151,10 @@ const requestEngine = async <T extends EngineResponse>(payload: EngineRequest): 
 	if (isBrowser && hasWorker && allowWorker && !workerUnhealthy) {
 		try {
 			return await requestWorker<T>(payload)
-		} catch {
-			markWorkerUnhealthy()
+		} catch (err) {
+			if (!isEngineError(err)) {
+				markWorkerUnhealthy(err)
+			}
 			return runInProcess<T>(payload)
 		}
 	}
