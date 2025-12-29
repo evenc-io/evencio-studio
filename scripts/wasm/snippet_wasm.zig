@@ -4,6 +4,7 @@ const tailwind = @import("snippet/tailwind.zig");
 const security = @import("snippet/security.zig");
 const inspect = @import("snippet/inspect.zig");
 const hash = @import("snippet/hash.zig");
+const files = @import("snippet/files.zig");
 
 const allocator = common.allocator;
 
@@ -80,4 +81,22 @@ export fn hash_bytes(ptr: usize, len: usize) u32 {
     if (ptr == 0 or len == 0) return 0;
     const source = @as([*]const u8, @ptrFromInt(ptr))[0..len];
     return hash.hashBytes(source);
+}
+
+/// Scans snippet file blocks and expands imports, returning a binary payload.
+export fn scan_snippet_files(ptr: usize, len: usize, out_len_ptr: usize) usize {
+    if (ptr == 0 or len == 0 or out_len_ptr == 0) return 0;
+
+    const source = @as([*]const u8, @ptrFromInt(ptr))[0..len];
+    const out = files.scanSnippetFiles(source) catch return 0;
+    const out_len = @min(out.len, @as(usize, std.math.maxInt(u32)));
+
+    const out_len_ptr_u32 = @as(*u32, @ptrFromInt(out_len_ptr));
+    out_len_ptr_u32.* = @intCast(out_len);
+
+    if (out_len == 0) {
+        return 0;
+    }
+
+    return @intFromPtr(out.ptr);
 }

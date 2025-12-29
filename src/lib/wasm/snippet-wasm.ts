@@ -1,6 +1,10 @@
 import { withTimeout } from "@/lib/snippets/async-timeout"
 import type { SnippetInspectIndex } from "@/lib/snippets/inspect-index"
-import { expandSnippetSource } from "@/lib/snippets/source-files"
+import {
+	expandSnippetSource,
+	type SnippetFileScanResult,
+	type SnippetLineMapSegment,
+} from "@/lib/snippets/source-files"
 import type { SourceSecurityIssue } from "@/lib/snippets/source-security"
 
 type SnippetWasmExports = {
@@ -10,6 +14,7 @@ type SnippetWasmExports = {
 	scan_tailwind_candidates: (ptr: number, len: number, outLenPtr: number) => number
 	scan_security_issues: (ptr: number, len: number, outLenPtr: number) => number
 	scan_inspect_index: (ptr: number, len: number, outLenPtr: number) => number
+	scan_snippet_files: (ptr: number, len: number, outLenPtr: number) => number
 	hash_bytes: (ptr: number, len: number) => number
 }
 
@@ -69,6 +74,7 @@ const loadSnippetWasm = async (): Promise<SnippetWasmExports | null> => {
 					!exports.scan_tailwind_candidates ||
 					!exports.scan_security_issues ||
 					!exports.scan_inspect_index ||
+					!exports.scan_snippet_files ||
 					!exports.hash_bytes
 				) {
 					wasmFailure = "Snippet WASM exports missing."
@@ -104,6 +110,135 @@ const loadSnippetWasm = async (): Promise<SnippetWasmExports | null> => {
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
+
+const FILE_SCAN_MAGIC = 0x534e4950
+const FILE_SCAN_VERSION = 1
+const FILE_SCAN_FLAG_HAS_FILE_BLOCKS = 1
+const FILE_SCAN_HEADER_SIZE = 8 * 4
+
+const decodeSnippetFileScanPayload = (bytes: Uint8Array): SnippetFileScanResult => {
+	if (bytes.byteLength < FILE_SCAN_HEADER_SIZE) {
+		throw new Error("Snippet file scan payload is incomplete.")
+	}
+
+	const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+	let offset = 0
+	const readU32 = () => {
+		if (offset + 4 > view.byteLength) {
+			throw new Error("Snippet file scan payload is truncated.")
+		}
+		const value = view.getUint32(offset, true)
+		offset += 4
+		return value
+	}
+	const readBytes = (length: number) => {
+		if (offset + length > bytes.byteLength) {
+			throw new Error("Snippet file scan payload is truncated.")
+		}
+		const slice = bytes.subarray(offset, offset + length)
+		offset += length
+		return slice
+	}
+
+	const magic = readU32()
+	const version = readU32()
+	if (magic !== FILE_SCAN_MAGIC || version !== FILE_SCAN_VERSION) {
+		throw new Error("Snippet file scan payload is not supported.")
+	}
+
+	const flags = readU32()
+	const mainLen = readU32()
+	const fileCount = readU32()
+	const expandedLen = readU32()
+	const segmentCount = readU32()
+	readU32()
+
+	const mainSource = decoder.decode(readBytes(mainLen))
+
+	const files: Record<string, string> = {}
+	const fileOrder: string[] = []
+	for (let index = 0; index < fileCount; index += 1) {
+		const nameLen = readU32()
+		const contentLen = readU32()
+		const name = decoder.decode(readBytes(nameLen))
+		const content = decoder.decode(readBytes(contentLen))
+		fileOrder.push(name)
+		files[name] = content
+	}
+
+	const expandedSource = decoder.decode(readBytes(expandedLen))
+
+	const lineMapSegments: SnippetLineMapSegment[] = []
+	for (let index = 0; index < segmentCount; index += 1) {
+		const fileIndex = readU32()
+		const expandedStartLine = readU32()
+		const originalStartLine = readU32()
+		const lineCount = readU32()
+		const fileName = fileIndex === 0 ? null : (fileOrder[fileIndex - 1] ?? null)
+		lineMapSegments.push({
+			fileName,
+			expandedStartLine,
+			originalStartLine,
+			lineCount,
+		})
+	}
+
+	return {
+		mainSource,
+		files,
+		hasFileBlocks: (flags & FILE_SCAN_FLAG_HAS_FILE_BLOCKS) === FILE_SCAN_FLAG_HAS_FILE_BLOCKS,
+		expandedSource,
+		lineMapSegments,
+		fileOrder,
+	}
+}
+
+export const scanSnippetFilesWasm = async (
+	source: string,
+): Promise<SnippetFileScanResult | null> => {
+	const wasm = await loadSnippetWasm()
+	if (!wasm) return null
+
+	const input = encoder.encode(source)
+	if (input.length === 0) return null
+
+	const inputPtr = wasm.alloc(input.length)
+	const outLenPtr = wasm.alloc(4)
+	if (!inputPtr || !outLenPtr) {
+		if (inputPtr) wasm.free(inputPtr, input.length)
+		if (outLenPtr) wasm.free(outLenPtr, 4)
+		return null
+	}
+
+	let outPtr = 0
+	let outLen = 0
+	try {
+		const memoryU8 = new Uint8Array(wasm.memory.buffer)
+		memoryU8.set(input, inputPtr)
+
+		outPtr = wasm.scan_snippet_files(inputPtr, input.length, outLenPtr)
+		const memoryAfter = new Uint8Array(wasm.memory.buffer)
+		const outLenView = new DataView(memoryAfter.buffer)
+		outLen = outLenView.getUint32(outLenPtr, true)
+
+		if (!outPtr || outLen === 0) {
+			return null
+		}
+
+		const output = memoryAfter.subarray(outPtr, outPtr + outLen)
+		try {
+			return decodeSnippetFileScanPayload(output)
+		} catch {
+			return null
+		}
+	} finally {
+		wasm.free(inputPtr, input.length)
+		wasm.free(outLenPtr, 4)
+		if (outPtr && outLen) {
+			wasm.free(outPtr, outLen)
+		}
+	}
+}
 
 export const warmSnippetWasm = async () => {
 	await loadSnippetWasm()

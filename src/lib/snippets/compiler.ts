@@ -7,7 +7,7 @@
 
 import type * as esbuild from "esbuild-wasm"
 import { withTimeout } from "./async-timeout"
-import { expandSnippetSource } from "./source-files"
+import { scanSnippetFilesInWasm } from "./source-files-wasm"
 
 // Types
 export interface CompileError {
@@ -237,7 +237,8 @@ function wrapForPreview(code: string, entryExport?: string): string {
 export async function compileSnippet(source: string, entryExport?: string): Promise<CompileResult> {
 	try {
 		const esbuild = await getEsbuild()
-		const normalizedSource = expandSnippetSource(source)
+		const scan = await scanSnippetFilesInWasm(source)
+		const normalizedSource = scan.expandedSource
 
 		const result = await esbuild.transform(normalizedSource, {
 			loader: "tsx",
