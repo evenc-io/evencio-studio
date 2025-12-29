@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import type { SnippetInspectIndex } from "@/lib/snippets/inspect-index"
 import { createInspectLookup } from "@/lib/snippets/inspect-index"
 import type { PreviewSourceLocation } from "@/lib/snippets/preview-runtime"
+import type { SnippetLineMapSegment } from "@/lib/snippets/source-files"
 import type { SnippetEditorFileId } from "@/routes/-snippets/new/snippet-editor-types"
 import { getComponentFileName, isComponentFileId } from "@/routes/-snippets/new/snippet-file-utils"
 import {
@@ -31,6 +32,7 @@ interface UseSnippetInspectOptions {
 	isExamplePreviewActive: boolean
 	onOpenFileForInspect: (fileId: SnippetEditorFileId) => void
 	inspectIndexByFileId?: Record<string, SnippetInspectIndex | null>
+	lineMapSegments?: SnippetLineMapSegment[]
 }
 
 interface UseSnippetInspectResult {
@@ -53,14 +55,15 @@ export function useSnippetInspect({
 	isExamplePreviewActive,
 	onOpenFileForInspect,
 	inspectIndexByFileId,
+	lineMapSegments,
 }: UseSnippetInspectOptions): UseSnippetInspectResult {
 	const [inspectMode, setInspectMode] = useState(false)
 	const [inspectHover, setInspectHover] = useState<SnippetInspectTarget | null>(null)
 	const [inspectSelection, setInspectSelection] = useState<SnippetInspectTarget | null>(null)
 
 	const inspectMap = useMemo(
-		() => buildSnippetInspectMap(mainSource, componentFiles),
-		[componentFiles, mainSource],
+		() => buildSnippetInspectMap(mainSource, componentFiles, lineMapSegments),
+		[componentFiles, lineMapSegments, mainSource],
 	)
 
 	const resolveInspectTarget = useCallback(

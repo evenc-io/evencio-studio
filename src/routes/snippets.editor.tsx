@@ -709,6 +709,7 @@ function NewSnippetPage() {
 		isExamplePreviewActive,
 		onOpenFileForInspect: openFileForInspect,
 		inspectIndexByFileId: analysis?.inspectIndexByFileId,
+		lineMapSegments: analysis?.lineMapSegments,
 	})
 
 	const buildTextRangeFromValue = useCallback((range: SnippetTextRange, rawValue: string) => {

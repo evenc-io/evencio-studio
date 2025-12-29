@@ -1,8 +1,10 @@
 import { parse } from "@babel/parser"
+import {
+	buildSnippetLineMapSegments,
+	type SnippetLineMapSegment,
+} from "@/lib/snippets/source-files"
 import type { SnippetEditorFileId } from "@/routes/-snippets/new/snippet-editor-types"
 import { toComponentFileId } from "@/routes/-snippets/new/snippet-file-utils"
-
-const IMPORT_LINE = /^\s*\/\/\s*@import\s+(.+?)\s*$/
 
 export interface SnippetInspectTarget {
 	fileId: SnippetEditorFileId
@@ -35,20 +37,6 @@ export interface SnippetInspectTextRequest extends SnippetInspectTarget {
 export type SnippetTextQuote = "'" | '"' | null
 export type SnippetElementContext = "jsx" | "expression"
 
-type SnippetLineSegment =
-	| {
-			start: number
-			end: number
-			type: "main"
-			mainLine: number
-	  }
-	| {
-			start: number
-			end: number
-			type: "component"
-			fileName: string
-	  }
-
 const getAutoImportOffset = (mainSource: string) => {
 	const lines = mainSource.split(/\r?\n/)
 	let index = 0
@@ -71,56 +59,33 @@ const getAutoImportOffset = (mainSource: string) => {
 	return index
 }
 
-export const buildSnippetInspectMap = (mainSource: string, files: Record<string, string>) => {
-	const mainLines = mainSource.split(/\r?\n/)
-	const segments: SnippetLineSegment[] = []
-	let expandedLine = 1
-
-	for (let index = 0; index < mainLines.length; index += 1) {
-		const line = mainLines[index]
-		const match = line.match(IMPORT_LINE)
-		const fileName = match?.[1]?.trim()
-		const fileSource = fileName ? files[fileName] : undefined
-
-		if (fileName && fileSource !== undefined) {
-			const fileLineCount = Math.max(1, fileSource.split(/\r?\n/).length)
-			segments.push({
-				start: expandedLine,
-				end: expandedLine + fileLineCount - 1,
-				type: "component",
-				fileName,
-			})
-			expandedLine += fileLineCount
-			continue
-		}
-
-		segments.push({
-			start: expandedLine,
-			end: expandedLine,
-			type: "main",
-			mainLine: index + 1,
-		})
-		expandedLine += 1
-	}
-
+export const buildSnippetInspectMap = (
+	mainSource: string,
+	files: Record<string, string>,
+	lineMapSegments?: SnippetLineMapSegment[],
+) => {
+	const segments = lineMapSegments ?? buildSnippetLineMapSegments(mainSource, files)
 	const autoImportOffset = getAutoImportOffset(mainSource)
 
 	const resolve = (lineNumber: number, columnNumber?: number): SnippetInspectTarget | null => {
 		if (!Number.isFinite(lineNumber) || lineNumber <= 0) return null
 		for (const segment of segments) {
-			if (lineNumber < segment.start || lineNumber > segment.end) continue
+			const segmentEnd = segment.expandedStartLine + segment.lineCount - 1
+			if (lineNumber < segment.expandedStartLine || lineNumber > segmentEnd) continue
 			const column = Math.max(1, Math.floor(columnNumber ?? 1))
+			const offset = lineNumber - segment.expandedStartLine
+			const originalLine = segment.originalStartLine + offset
 
-			if (segment.type === "component") {
+			if (segment.fileName) {
 				return {
 					fileId: toComponentFileId(segment.fileName),
 					fileName: segment.fileName,
-					line: lineNumber - segment.start + 1,
+					line: originalLine,
 					column,
 				}
 			}
 
-			const mappedLine = segment.mainLine - autoImportOffset
+			const mappedLine = originalLine - autoImportOffset
 			if (mappedLine <= 0) return null
 			return {
 				fileId: "source",

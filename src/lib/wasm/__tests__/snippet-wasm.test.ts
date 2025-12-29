@@ -1,12 +1,16 @@
 import { describe, expect, test } from "bun:test"
 import { analyzeSnippetInEngine } from "@/lib/engine/client"
 import { formatSample, measure } from "@/lib/perf"
+import { SNIPPET_EXAMPLES } from "@/lib/snippets/examples"
 import { buildSnippetInspectIndex } from "@/lib/snippets/inspect-index"
+import { scanSnippetFilesSync } from "@/lib/snippets/source-files"
 import { analyzeSnippetSource } from "@/lib/snippets/source-security"
 import { extractTailwindCandidatesFromSource } from "@/lib/snippets/tailwind"
+import { SNIPPET_TEMPLATES } from "@/lib/snippets/templates"
 import {
 	buildSnippetInspectIndexWasm,
 	hashSourceWasm,
+	scanSnippetFilesWasm,
 	scanSnippetSecurityIssuesWasm,
 	scanTailwindCandidatesWasm,
 } from "@/lib/wasm/snippet-wasm"
@@ -136,6 +140,25 @@ describe("snippet wasm inspect index", () => {
 	})
 })
 
+describe("snippet wasm file scanner", () => {
+	test("matches JS scanner for snippet-file blocks", async () => {
+		const source = SNIPPET_TEMPLATES.multi.source
+		const jsResult = scanSnippetFilesSync(source)
+		const wasmResult = await scanSnippetFilesWasm(source)
+		expect(wasmResult).not.toBeNull()
+		if (!wasmResult) {
+			throw new Error("Snippet file WASM result missing.")
+		}
+
+		expect(wasmResult.mainSource).toBe(jsResult.mainSource)
+		expect(wasmResult.files).toEqual(jsResult.files)
+		expect(wasmResult.fileOrder).toEqual(jsResult.fileOrder)
+		expect(wasmResult.expandedSource).toBe(jsResult.expandedSource)
+		expect(wasmResult.lineMapSegments).toEqual(jsResult.lineMapSegments)
+		expect(wasmResult.hasFileBlocks).toBe(true)
+	})
+})
+
 const repeat = (value: string, count: number) =>
 	Array.from({ length: count }, () => value).join("\n")
 
@@ -162,6 +185,34 @@ ${repeat(chunk, count)}
 const mediumSource = buildSource(baseChunk, 40)
 const heavySource = buildSource(baseChunk, 120)
 
+const templateSources = Object.values(SNIPPET_TEMPLATES).map((template) => template.source)
+const exampleSources = SNIPPET_EXAMPLES.map((example) => example.source)
+const realSnippetSources = [...templateSources, ...exampleSources].filter(
+	(source) => source.trim().length > 0,
+)
+
+const pickSnippetSources = (count: number) => {
+	if (realSnippetSources.length === 0) return [""]
+	return Array.from(
+		{ length: count },
+		(_, index) => realSnippetSources[index % realSnippetSources.length],
+	)
+}
+
+const buildLargeSnippetSources = (sources: string[], repeats: number, variants: number) => {
+	const normalized = sources.map((source) => source.trim()).filter(Boolean)
+	if (normalized.length === 0) return [""]
+	const combined = Array.from(
+		{ length: repeats },
+		(_, index) => normalized[index % normalized.length],
+	).join("\n\n")
+	return Array.from({ length: variants }, (_, index) => `${combined}\n// seed:${index}`)
+}
+
+const mediumFileSources = pickSnippetSources(6)
+const heavyFileSources = buildLargeSnippetSources(pickSnippetSources(6), 2, 6)
+const largeFileSources = buildLargeSnippetSources(pickSnippetSources(8), 4, 4)
+
 const hashSourceJs = (value: string) => {
 	let hash = 0x811c9dc5
 	for (let i = 0; i < value.length; i += 1) {
@@ -187,6 +238,34 @@ const benchPair = async (
 		)}ms (${ratio.toFixed(2)}x)`,
 	)
 	return { wasmSample, jsSample, ratio }
+}
+
+const createSourceCycler = (sources: string[]) => {
+	let index = 0
+	return () => {
+		const source = sources[index % sources.length]
+		index += 1
+		return source
+	}
+}
+
+const benchSnippetFiles = async (label: string, iterations: number, sources: string[]) => {
+	const wasmNext = createSourceCycler(sources)
+	const jsNext = createSourceCycler(sources)
+
+	return benchPair(
+		label,
+		iterations,
+		async () => {
+			const source = wasmNext()
+			const result = await scanSnippetFilesWasm(source)
+			if (!result) throw new Error("Snippet file WASM result missing.")
+		},
+		async () => {
+			const source = jsNext()
+			scanSnippetFilesSync(source)
+		},
+	)
 }
 
 const benchWorkerRoundtrip = async (label: string, iterations: number, source: string) => {
@@ -299,6 +378,9 @@ describe("snippet wasm benchmarks", () => {
 		)
 		expect(mediumInspect.wasmSample.durationMs).toBeGreaterThan(0)
 
+		const mediumFiles = await benchSnippetFiles("medium snippet files", 10, mediumFileSources)
+		expect(mediumFiles.wasmSample.durationMs).toBeGreaterThan(0)
+
 		await benchWorkerRoundtrip("medium", 20, mediumSource)
 
 		const heavyScan = await benchPair(
@@ -346,6 +428,12 @@ describe("snippet wasm benchmarks", () => {
 			() => jsInspect(heavySource),
 		)
 		expect(heavyInspect.wasmSample.durationMs).toBeGreaterThan(0)
+
+		const heavyFiles = await benchSnippetFiles("heavy snippet files", 6, heavyFileSources)
+		expect(heavyFiles.wasmSample.durationMs).toBeGreaterThan(0)
+
+		const largeFiles = await benchSnippetFiles("large snippet files", 4, largeFileSources)
+		expect(largeFiles.wasmSample.durationMs).toBeGreaterThan(0)
 
 		await benchWorkerRoundtrip("heavy", 6, heavySource)
 	})

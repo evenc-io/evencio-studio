@@ -6,7 +6,7 @@ import {
 import { loadBabelParser } from "./babel-parser"
 import { buildSnippetInspectIndex, type SnippetInspectIndex } from "./inspect-index"
 import { analyzeSnippetProgram } from "./source-derived"
-import { expandSnippetSource, parseSnippetFiles } from "./source-files"
+import { scanSnippetFilesInWasm } from "./source-files-wasm"
 import { hashSnippetSource } from "./source-hash"
 import { analyzeSnippetAst } from "./source-security"
 import {
@@ -66,10 +66,12 @@ export const analyzeSnippetTsx = async ({
 			tailwindError: null,
 			sourceHash: 0,
 			inspectIndexByFile: includeInspect ? { source: { version: 1, elements: [] } } : undefined,
+			lineMapSegments: includeInspect ? [] : undefined,
 		}
 	}
 
-	const normalizedSource = expandSnippetSource(source)
+	const scan = await scanSnippetFilesInWasm(source)
+	const normalizedSource = scan.expandedSource
 	const parser = await loadBabelParser()
 	const ast = parser.parse(normalizedSource, {
 		sourceType: "module",
@@ -113,25 +115,27 @@ export const analyzeSnippetTsx = async ({
 	}
 
 	let inspectIndexByFile: AnalyzeTsxResponse["inspectIndexByFile"]
+	let lineMapSegments: AnalyzeTsxResponse["lineMapSegments"]
 	if (includeInspect) {
-		const parsed = parseSnippetFiles(source)
-		const cleanedMain = stripAutoImportBlock(parsed.mainSource)
+		const cleanedMain = stripAutoImportBlock(scan.mainSource)
 		if (isBrowser) {
 			const nextIndexByFile: Record<string, SnippetInspectIndex | null> = {}
 			const mainIndex = await buildSnippetInspectIndexWasm(cleanedMain, { expanded: true })
 			nextIndexByFile.source = mainIndex ?? buildSnippetInspectIndex(cleanedMain)
-			for (const [fileName, fileSource] of Object.entries(parsed.files)) {
+			for (const [fileName, fileSource] of Object.entries(scan.files)) {
 				const fileIndex = await buildSnippetInspectIndexWasm(fileSource, { expanded: true })
 				nextIndexByFile[fileName] = fileIndex ?? buildSnippetInspectIndex(fileSource)
 			}
 			inspectIndexByFile = nextIndexByFile
+			lineMapSegments = scan.lineMapSegments
 		} else {
 			inspectIndexByFile = {
 				source: buildSnippetInspectIndex(cleanedMain),
 			}
-			for (const [fileName, fileSource] of Object.entries(parsed.files)) {
+			for (const [fileName, fileSource] of Object.entries(scan.files)) {
 				inspectIndexByFile[fileName] = buildSnippetInspectIndex(fileSource)
 			}
+			lineMapSegments = scan.lineMapSegments
 		}
 	}
 
@@ -150,5 +154,6 @@ export const analyzeSnippetTsx = async ({
 		tailwindError,
 		sourceHash,
 		inspectIndexByFile,
+		lineMapSegments,
 	}
 }
