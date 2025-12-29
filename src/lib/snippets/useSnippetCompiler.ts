@@ -336,8 +336,7 @@ export function useSnippetCompiler({
 		if (!analysis) return
 		if (!compiledCode || status !== "success") return
 		const analysisHash = typeof analysis.sourceHash === "number" ? analysis.sourceHash : null
-		const analysisMatches =
-			analysisHash !== null && analysisHash === hashSnippetSourceSync(source)
+		const analysisMatches = analysisHash !== null && analysisHash === hashSnippetSourceSync(source)
 
 		if (analysisMatches) {
 			const securityErrors = securityIssuesToCompileErrors(analysis.securityIssues)
