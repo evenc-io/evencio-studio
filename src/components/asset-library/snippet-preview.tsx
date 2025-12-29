@@ -72,7 +72,10 @@ export function SnippetPreview({
 	const [status, setStatus] = useState<PreviewStatus>("idle")
 	const [error, setError] = useState<string | null>(null)
 	const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
-	const [isReady, setIsReady] = useState(false)
+	const lastCompiledCodeRef = useRef<string | null>(null)
+	const lastDimensionsRef = useRef<PreviewDimensions>(dimensions)
+	const lastTailwindCssRef = useRef<string | null>(null)
+	const lastPropsJsonRef = useRef<string | null>(null)
 	const onInspectHoverRef = useRef(onInspectHover)
 	const onInspectSelectRef = useRef(onInspectSelect)
 	const onInspectContextRef = useRef(onInspectContext)
@@ -110,10 +113,6 @@ export function SnippetPreview({
 			}
 
 			switch (data.type) {
-				case "ready":
-					// Iframe is loaded and executing
-					setIsReady(true)
-					break
 				case "render-success":
 					setStatus("success")
 					setError(null)
@@ -156,40 +155,88 @@ export function SnippetPreview({
 		return () => window.removeEventListener("message", handleMessage)
 	}, [handleMessage])
 
-	// Update iframe srcdoc when code changes
+	const propsJson = useMemo(() => {
+		try {
+			return JSON.stringify(props ?? {})
+		} catch {
+			return "{}"
+		}
+	}, [props])
+
+	// Update iframe srcdoc when code or dimensions change
 	useEffect(() => {
 		if (!compiledCode) {
 			setStatus("idle")
 			setError(null)
-			setIsReady(false)
+			lastCompiledCodeRef.current = null
+			lastTailwindCssRef.current = null
+			lastPropsJsonRef.current = null
 			onInspectHoverRef.current?.(null)
 			onInspectSelectRef.current?.(null, { reason: "reset" })
 			return
 		}
 
+		const lastDimensions = lastDimensionsRef.current
+		const shouldReload =
+			compiledCode !== lastCompiledCodeRef.current ||
+			dimensions.width !== lastDimensions.width ||
+			dimensions.height !== lastDimensions.height
+
+		if (!shouldReload) {
+			return
+		}
+
+		lastCompiledCodeRef.current = compiledCode
+		lastDimensionsRef.current = dimensions
+		lastTailwindCssRef.current = tailwindCss ?? null
+		lastPropsJsonRef.current = propsJson
 		setStatus("loading")
 		setError(null)
-		setIsReady(false)
 		onInspectHoverRef.current?.(null)
 		onInspectSelectRef.current?.(null, { reason: "reset" })
 
 		// Generate new srcdoc
-		const srcdoc = generatePreviewSrcdoc(compiledCode, props, dimensions, tailwindCss ?? undefined)
+		const srcdoc = generatePreviewSrcdoc(
+			compiledCode,
+			props,
+			dimensions,
+			tailwindCss ?? undefined,
+			propsJson,
+		)
 
 		// Update iframe
 		if (iframeRef.current) {
 			iframeRef.current.srcdoc = srcdoc
 		}
-	}, [compiledCode, props, dimensions, tailwindCss])
+	}, [compiledCode, dimensions, props, propsJson, tailwindCss])
+
+	useEffect(() => {
+		if (!compiledCode || status !== "success") return
+		const iframeWindow = iframeRef.current?.contentWindow
+		if (!iframeWindow) return
+		const nextCss = tailwindCss ?? null
+		if (lastTailwindCssRef.current === nextCss) return
+		lastTailwindCssRef.current = nextCss
+		iframeWindow.postMessage({ type: "tailwind-update", css: nextCss }, "*")
+	}, [compiledCode, status, tailwindCss])
+
+	useEffect(() => {
+		if (!compiledCode || status !== "success") return
+		const iframeWindow = iframeRef.current?.contentWindow
+		if (!iframeWindow) return
+		if (propsJson === lastPropsJsonRef.current) return
+		lastPropsJsonRef.current = propsJson
+		iframeWindow.postMessage({ type: "props-update", propsJson }, "*")
+	}, [compiledCode, propsJson, status])
 
 	useEffect(() => {
 		const iframe = iframeRef.current
-		if (!iframe || !isReady) return
+		if (!iframe || status !== "success") return
 		iframe.contentWindow?.postMessage(
 			{ type: "inspect-toggle", enabled: Boolean(inspectEnabled) },
 			"*",
 		)
-	}, [inspectEnabled, isReady])
+	}, [inspectEnabled, status])
 
 	useEffect(() => {
 		const element = containerRef.current

@@ -6,6 +6,7 @@ export type PanelState = {
 	examplesOpen: boolean
 	importsOpen: boolean
 	historyOpen: boolean
+	settingsOpen: boolean
 }
 
 export type PanelSnapshot = Pick<PanelState, "detailsCollapsed" | "explorerCollapsed">
@@ -24,6 +25,7 @@ export const readPanelState = (): PanelState | null => {
 			"examplesOpen",
 			"importsOpen",
 			"historyOpen",
+			"settingsOpen",
 		])
 		if (keys.some((key) => !allowedKeys.has(key))) return null
 		if (typeof parsed.detailsCollapsed !== "boolean") return null
@@ -46,7 +48,20 @@ export const readPanelState = (): PanelState | null => {
 					? parsed.historyOpen
 					: null
 				: false
-		if (examplesOpen === null || importsOpen === null || historyOpen === null) return null
+		const settingsOpen =
+			"settingsOpen" in parsed
+				? typeof parsed.settingsOpen === "boolean"
+					? parsed.settingsOpen
+					: null
+				: false
+		if (
+			examplesOpen === null ||
+			importsOpen === null ||
+			historyOpen === null ||
+			settingsOpen === null
+		) {
+			return null
+		}
 		if (examplesOpen && importsOpen) return null
 		if (parsed.detailsCollapsed && parsed.explorerCollapsed && examplesOpen && importsOpen) {
 			return null
@@ -60,6 +75,7 @@ export const readPanelState = (): PanelState | null => {
 			examplesOpen,
 			importsOpen,
 			historyOpen,
+			settingsOpen,
 		}
 	} catch {
 		return null

@@ -14,8 +14,9 @@ import {
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 import { SnippetPreview } from "@/components/asset-library/snippet-preview"
+import { ClientOnly } from "@/components/ui/client-only"
 import { Form } from "@/components/ui/form"
-import { useScreenGuard } from "@/lib/screen-guard"
+import { SCREEN_GUARD_EMPTY, useScreenGuard } from "@/lib/screen-guard"
 import {
 	DEFAULT_SNIPPET_EXPORT,
 	listSnippetComponentExports,
@@ -41,6 +42,7 @@ import { SnippetExamplesPanel } from "@/routes/-snippets/new/components/examples
 import { SnippetImportsPanel } from "@/routes/-snippets/new/components/imports-panel"
 import { PanelRail } from "@/routes/-snippets/new/components/panel-rail"
 import { SnippetPreviewHeaderActions } from "@/routes/-snippets/new/components/preview-header-actions"
+import { SnippetSettingsPanel } from "@/routes/-snippets/new/components/settings-panel"
 import { SnippetFileOverlays } from "@/routes/-snippets/new/components/snippet-file-overlays"
 import { SnippetHeader } from "@/routes/-snippets/new/components/snippet-header"
 import { SnippetHistoryPanel } from "@/routes/-snippets/new/components/snippet-history-panel"
@@ -60,6 +62,7 @@ import {
 	STARTER_SOURCE,
 } from "@/routes/-snippets/new/constants"
 import { useDerivedSnippetProps } from "@/routes/-snippets/new/hooks/use-derived-snippet-props"
+import { useSnippetAnalysis } from "@/routes/-snippets/new/hooks/use-snippet-analysis"
 import { useSnippetComponentExports } from "@/routes/-snippets/new/hooks/use-snippet-component-exports"
 import { useSnippetFilters } from "@/routes/-snippets/new/hooks/use-snippet-filters"
 import { useSnippetHistory } from "@/routes/-snippets/new/hooks/use-snippet-history"
@@ -95,6 +98,7 @@ import {
 	buildSnippetTextLiteral,
 	getSnippetTextRangeValue,
 	replaceSnippetTextRange,
+	resolveSnippetElementContext,
 	type SnippetTextRange,
 } from "@/routes/-snippets/new/snippet-inspect-utils"
 import { useAssetLibraryStore } from "@/stores/asset-library-store"
@@ -171,10 +175,12 @@ function NewSnippetPage() {
 		examplesOpen,
 		importsOpen,
 		historyOpen,
+		settingsOpen,
 		isFocusPanelOpen,
 		toggleExamplesPanel,
 		toggleImportsPanel,
 		toggleHistoryPanel,
+		toggleSettingsPanel,
 	} = useSnippetPanels()
 	const [activeExampleId, setActiveExampleId] = useState(() => SNIPPET_EXAMPLES[0]?.id ?? "")
 	const [isExamplePreviewActive, setIsExamplePreviewActive] = useState(false)
@@ -208,12 +214,25 @@ function NewSnippetPage() {
 		},
 	})
 	const watchedSource = form.watch("source") ?? ""
+	const includeInspect = true
+	const {
+		analysis,
+		resetAnalysis,
+		status: analysisStatus,
+		error: analysisError,
+	} = useSnippetAnalysis({
+		source: watchedSource,
+		includeTailwind: isPreviewVisible,
+		includeInspect,
+		key: "snippet-analyze",
+	})
 	const { componentExports, resetComponentExports } = useSnippetComponentExports({
 		source: watchedSource,
 		form,
 		fileMigrationRef,
+		analysis,
 	})
-	const derivedProps = useDerivedSnippetProps({ source: watchedSource, form })
+	const derivedProps = useDerivedSnippetProps({ analysis, form })
 	const parsedFiles = useMemo(() => parseSnippetFiles(watchedSource), [watchedSource])
 	const componentFileNames = useMemo(
 		() => Object.keys(parsedFiles.files).sort((a, b) => a.localeCompare(b)),
@@ -470,6 +489,12 @@ function NewSnippetPage() {
 	const examplePreviewDimensions = activeExample?.viewport ?? DEFAULT_PREVIEW_DIMENSIONS
 	const examplePreviewProps = useMemo(() => activeExample?.previewProps ?? {}, [activeExample])
 	const exampleSource = activeExample?.source ?? ""
+	const { analysis: exampleAnalysis } = useSnippetAnalysis({
+		source: isExamplePreviewActive ? exampleSource : "",
+		includeTailwind: isExamplePreviewActive && isPreviewVisible,
+		debounceMs: 300,
+		key: "snippet-analyze-example",
+	})
 
 	useEffect(() => {
 		loadLibrary()
@@ -502,6 +527,7 @@ function NewSnippetPage() {
 		autoOpenComponentsRef.current = false
 		fileMigrationRef.current = false
 		resetComponentExports()
+		resetAnalysis()
 		form.reset(
 			{
 				title: editAsset.metadata.title ?? "",
@@ -535,6 +561,7 @@ function NewSnippetPage() {
 		form,
 		isEditing,
 		isLibraryLoading,
+		resetAnalysis,
 		resetComponentExports,
 		resetHistory,
 	])
@@ -641,52 +668,31 @@ function NewSnippetPage() {
 		monacoMarkers,
 		parsedProps,
 		errors: compileErrors,
-		compile,
 	} = useSnippetCompiler({
 		source: watchedSource,
 		defaultProps: derivedProps.defaultProps,
 		entryExport: resolvedEntryExport,
 		debounceMs: 500,
 		enableTailwindCss: isPreviewVisible,
+		analysis,
+		engineKey: "snippet-compile-main",
 	})
 	const emptyPreviewProps = useMemo(() => ({}), [])
 	const previewProps = useMemo(
 		() => (useComponentDefaults ? emptyPreviewProps : parsedProps),
 		[emptyPreviewProps, parsedProps, useComponentDefaults],
 	)
-	const {
-		status: exampleCompileStatus,
-		compiledCode: exampleCompiledCode,
-		tailwindCss: exampleTailwindCss,
-		compile: compileExample,
-	} = useSnippetCompiler({
-		source: exampleSource,
-		defaultProps: examplePreviewProps,
-		debounceMs: 300,
-		autoCompile: isExamplePreviewActive,
-		enableTailwindCss: isExamplePreviewActive && isPreviewVisible,
-	})
-
-	useEffect(() => {
-		if (!isPreviewVisible) return
-		if (compileStatus !== "success") return
-		if (tailwindCss !== null) return
-		void compile()
-	}, [compile, compileStatus, isPreviewVisible, tailwindCss])
-
-	useEffect(() => {
-		if (!isExamplePreviewActive) return
-		if (!isPreviewVisible) return
-		if (exampleCompileStatus !== "success") return
-		if (exampleTailwindCss !== null) return
-		void compileExample()
-	}, [
-		compileExample,
-		exampleCompileStatus,
-		exampleTailwindCss,
-		isExamplePreviewActive,
-		isPreviewVisible,
-	])
+	const { compiledCode: exampleCompiledCode, tailwindCss: exampleTailwindCss } = useSnippetCompiler(
+		{
+			source: exampleSource,
+			defaultProps: examplePreviewProps,
+			debounceMs: 300,
+			autoCompile: isExamplePreviewActive,
+			enableTailwindCss: isExamplePreviewActive && isPreviewVisible,
+			analysis: exampleAnalysis,
+			engineKey: "snippet-compile-example",
+		},
+	)
 
 	const openFileTab = useCallback((fileId: SnippetEditorFileId) => {
 		setOpenFiles((prev) => (prev.includes(fileId) ? prev : [...prev, fileId]))
@@ -720,6 +726,7 @@ function NewSnippetPage() {
 		activeFile,
 		isExamplePreviewActive,
 		onOpenFileForInspect: openFileForInspect,
+		inspectIndexByFileId: analysis?.inspectIndexByFileId,
 	})
 
 	const buildTextRangeFromValue = useCallback((range: SnippetTextRange, rawValue: string) => {
@@ -900,7 +907,14 @@ function NewSnippetPage() {
 				return { ...prev, open: false, request: null }
 			}
 			const fileSource = getSourceForFile(prev.request.fileId)
-			const nextSource = replaceSnippetTextRange(fileSource, prev.request.elementRange, "", null)
+			const context = resolveSnippetElementContext(fileSource, prev.request.elementRange)
+			const replacement = context === "expression" ? "null" : ""
+			const nextSource = replaceSnippetTextRange(
+				fileSource,
+				prev.request.elementRange,
+				replacement,
+				null,
+			)
 			updateSourceForFile(prev.request.fileId, nextSource)
 			return { ...prev, open: false, request: null }
 		})
@@ -1120,6 +1134,7 @@ function NewSnippetPage() {
 			autoOpenComponentsRef.current = false
 			fileMigrationRef.current = false
 			resetComponentExports()
+			resetAnalysis()
 			const shouldMarkDirty = options?.markDirty ?? true
 			form.setValue("source", template.source, {
 				shouldValidate: true,
@@ -1133,7 +1148,7 @@ function NewSnippetPage() {
 			setIsExamplePreviewActive(false)
 			openFileTab("source")
 		},
-		[commitHistoryNow, form, openFileTab, resetComponentExports, resetHistory],
+		[commitHistoryNow, form, openFileTab, resetAnalysis, resetComponentExports, resetHistory],
 	)
 
 	const handleFileContextMenu = (
@@ -1204,6 +1219,7 @@ function NewSnippetPage() {
 			const content = reader.result as string
 			fileMigrationRef.current = false
 			resetComponentExports()
+			resetAnalysis()
 			form.setValue("source", content, { shouldValidate: true })
 			commitHistoryNow("Upload source", content)
 			if (!form.getValues("title")) {
@@ -1357,6 +1373,7 @@ export const ${name} = ({ title = "New snippet" }) => {
 		if (!activeExample) return
 		fileMigrationRef.current = false
 		resetComponentExports()
+		resetAnalysis()
 		form.setValue("source", activeExample.source, { shouldValidate: true })
 		commitHistoryNow("Apply example", activeExample.source)
 		form.setValue("viewportWidth", activeExample.viewport.width, { shouldValidate: true })
@@ -1487,169 +1504,188 @@ export const ${name} = ({ title = "New snippet" }) => {
 		explorerCollapsed,
 	})
 
-	if (screenGate.status !== "supported") {
-		return <SnippetScreenGuard gate={screenGate} />
-	}
-
 	return (
-		<div className="flex h-screen flex-col overflow-hidden bg-white">
-			<SnippetFileOverlays
-				contextMenu={fileContextMenu}
-				contextMenuFile={contextMenuFile}
-				openFiles={openFiles}
-				canCloseContextTab={canCloseContextTab}
-				deleteTarget={deleteTarget}
-				isDeletingComponent={isDeletingComponent}
-				onContextMenuOpenChange={handleFileContextMenuOpenChange}
-				onSelectFile={selectFile}
-				onCloseFileTab={closeFileTab}
-				onRequestDelete={setDeleteTarget}
-				onCancelDelete={() => setDeleteTarget(null)}
-				onConfirmDelete={handleConfirmDeleteComponent}
-			/>
-			<SnippetInspectOverlays
-				contextMenu={inspectContextMenu}
-				onContextEdit={handleInspectContextEdit}
-				onContextRemove={handleInspectContextRemove}
-				onContextRemoveContainer={handleInspectContextRemoveContainer}
-				editor={inspectTextEdit}
-				editorLabel={inspectEditorLabel}
-				editorRef={inspectTextEditRef}
-				menuRef={inspectContextMenuRef}
-				onEditorChange={handleInspectTextChange}
-				onEditorClose={closeInspectTextEdit}
-			/>
-			<SnippetHeader
-				canSubmit={canSubmit}
-				isSubmitting={isSubmitting}
-				isEditing={isEditing}
-				onSubmit={form.handleSubmit(handleSubmit)}
-			/>
-
-			{/* Main content - fills remaining height */}
-			<Form {...form}>
-				<form className="flex flex-1 overflow-hidden" onSubmit={form.handleSubmit(handleSubmit)}>
-					<PanelRail
-						editorCollapsed={editorCollapsed}
-						detailsCollapsed={detailsCollapsed}
-						explorerCollapsed={explorerCollapsed}
-						examplesOpen={examplesOpen}
-						importsOpen={importsOpen}
-						historyOpen={historyOpen}
-						isFocusPanelOpen={isFocusPanelOpen}
-						onToggleEditor={() => setEditorCollapsed((prev) => !prev)}
-						onToggleDetails={() => setDetailsCollapsed((prev) => !prev)}
-						onToggleExplorer={() => setExplorerCollapsed((prev) => !prev)}
-						onToggleExamples={toggleExamplesPanel}
-						onToggleImports={toggleImportsPanel}
-						onToggleHistory={toggleHistoryPanel}
-						exampleFilters={exampleFilters}
-						importsFilters={importsFilters}
-						onExampleFilterClick={handleExampleFilterClick}
-						onImportsFilterClick={handleImportsFilterClick}
+		<ClientOnly fallback={<SnippetScreenGuard gate={SCREEN_GUARD_EMPTY} />}>
+			{screenGate.status !== "supported" ? (
+				<SnippetScreenGuard gate={screenGate} />
+			) : (
+				<div className="flex h-screen flex-col overflow-hidden bg-white">
+					<SnippetFileOverlays
+						contextMenu={fileContextMenu}
+						contextMenuFile={contextMenuFile}
+						openFiles={openFiles}
+						canCloseContextTab={canCloseContextTab}
+						deleteTarget={deleteTarget}
+						isDeletingComponent={isDeletingComponent}
+						onContextMenuOpenChange={handleFileContextMenuOpenChange}
+						onSelectFile={selectFile}
+						onCloseFileTab={closeFileTab}
+						onRequestDelete={setDeleteTarget}
+						onCancelDelete={() => setDeleteTarget(null)}
+						onConfirmDelete={handleConfirmDeleteComponent}
 					/>
-					<SnippetDetailsPanel
-						collapsed={detailsCollapsed}
-						tagHints={tagHints}
-						disabledScopes={disabledScopes}
-						selectedTemplateId={selectedTemplateId}
-						onSelectTemplate={setSelectedTemplateId}
-						onApplyTemplate={() => applySnippetTemplate(selectedTemplateId)}
-						error={error}
+					<SnippetInspectOverlays
+						contextMenu={inspectContextMenu}
+						onContextEdit={handleInspectContextEdit}
+						onContextRemove={handleInspectContextRemove}
+						onContextRemoveContainer={handleInspectContextRemoveContainer}
+						editor={inspectTextEdit}
+						editorLabel={inspectEditorLabel}
+						editorRef={inspectTextEditRef}
+						menuRef={inspectContextMenuRef}
+						onEditorChange={handleInspectTextChange}
+						onEditorClose={closeInspectTextEdit}
 					/>
-					<SnippetHistoryPanel
-						open={historyOpen}
-						entries={historyEntries}
-						activeIndex={historyActiveIndex}
-						canUndo={canUndo}
-						canRedo={canRedo}
-						onUndo={undo}
-						onRedo={redo}
-						onJump={jumpToHistory}
+					<SnippetHeader
+						canSubmit={canSubmit}
+						isSubmitting={isSubmitting}
+						isEditing={isEditing}
+						onSubmit={form.handleSubmit(handleSubmit)}
 					/>
 
-					<SnippetExamplesPanel
-						open={examplesOpen}
-						examples={filteredExamples}
-						activeExample={activeExample}
-						activeExampleId={activeExampleId}
-						isPreviewActive={isExamplePreviewActive}
-						onSelectExample={setActiveExampleId}
-						onTogglePreview={() => setIsExamplePreviewActive((prev) => !prev)}
-						onApplyExample={applyExampleToEditor}
-					/>
-
-					<SnippetImportsPanel open={importsOpen} filters={importsFilters} />
-
-					{/* Center - Editor and Preview split */}
-					<section ref={splitContainerRef} className="flex flex-1 overflow-hidden">
-						<SnippetEditorPanel
-							containerRef={editorPanelRef}
-							editorCollapsed={editorCollapsed}
-							explorerCollapsed={explorerCollapsed}
-							openFiles={openFiles}
-							editorFiles={editorFiles}
-							editorFilesById={editorFilesById}
-							activeFile={activeFile}
-							activeFileMeta={activeFileMeta}
-							isSourceEditorActive={isSourceEditorActive}
-							isComponentEditorActive={isComponentEditorActive}
-							isPropsSchemaActive={isPropsSchemaActive}
-							isDefaultPropsActive={isDefaultPropsActive}
-							componentCount={componentCount}
-							hasComponentExports={componentExports.length > 0}
-							canAddComponent={canAddComponent}
-							overSoftComponentLimit={overSoftComponentLimit}
-							overHardComponentLimit={overHardComponentLimit}
-							onSelectFile={selectFile}
-							onCloseFileTab={closeFileTab}
-							onReorderOpenFiles={handleReorderOpenFiles}
-							onFileContextMenu={handleFileContextMenu}
-							onAddComponent={handleAddComponent}
-							fileInputRef={fileInputRef}
-							onSourceUpload={handleSourceFileUpload}
-							form={form}
-							mainEditorSource={mainEditorSource}
-							onMainSourceChange={handleMainSourceChange}
-							componentTypeLibs={componentTypeLibs}
-							componentDefinitionMap={componentDefinitionMap}
-							onDefinitionSelect={handleDefinitionSelect}
-							monacoMarkers={monacoMarkers}
-							hasActiveComponentFile={hasActiveComponentFile}
-							activeComponentSource={activeComponentSource}
-							activeComponentFileName={activeComponentFileName}
-							onComponentSourceChange={handleComponentSourceChange}
-							derivedDuplicateKeys={derivedProps.duplicateKeys}
-							compileStatus={compileStatus}
-							compileErrors={compileErrors}
-							inspectHighlight={inspectHighlight}
-							canUndo={canUndo}
-							canRedo={canRedo}
-							onUndo={undo}
-							onRedo={redo}
-						/>
-
-						<SnippetSplitViewResizer isHidden={editorCollapsed} onPointerDown={onResizeStart} />
-
-						{/* Preview panel - fills remaining width */}
-						<div ref={previewContainerRef} className="flex min-w-0 flex-1 flex-col overflow-hidden">
-							<SnippetPreview
-								compiledCode={previewCompiledCode}
-								props={previewPropsToUse}
-								tailwindCss={previewTailwindCss}
-								dimensions={previewDimensionsToUse}
-								className="h-full"
-								headerActions={previewHeaderActions}
-								inspectEnabled={inspectEnabled}
-								onInspectHover={onPreviewInspectHover}
-								onInspectSelect={handlePreviewInspectSelect}
-								onInspectContext={handleInspectContext}
-								onInspectEscape={handleInspectEscape}
+					{/* Main content - fills remaining height */}
+					<Form {...form}>
+						<form
+							className="flex flex-1 overflow-hidden"
+							onSubmit={form.handleSubmit(handleSubmit)}
+						>
+							<PanelRail
+								editorCollapsed={editorCollapsed}
+								detailsCollapsed={detailsCollapsed}
+								explorerCollapsed={explorerCollapsed}
+								examplesOpen={examplesOpen}
+								importsOpen={importsOpen}
+								historyOpen={historyOpen}
+								settingsOpen={settingsOpen}
+								isFocusPanelOpen={isFocusPanelOpen}
+								onToggleEditor={() => setEditorCollapsed((prev) => !prev)}
+								onToggleDetails={() => setDetailsCollapsed((prev) => !prev)}
+								onToggleExplorer={() => setExplorerCollapsed((prev) => !prev)}
+								onToggleExamples={toggleExamplesPanel}
+								onToggleImports={toggleImportsPanel}
+								onToggleHistory={toggleHistoryPanel}
+								onToggleSettings={toggleSettingsPanel}
+								exampleFilters={exampleFilters}
+								importsFilters={importsFilters}
+								onExampleFilterClick={handleExampleFilterClick}
+								onImportsFilterClick={handleImportsFilterClick}
 							/>
-						</div>
-					</section>
-				</form>
-			</Form>
-		</div>
+							<SnippetDetailsPanel
+								collapsed={detailsCollapsed}
+								tagHints={tagHints}
+								disabledScopes={disabledScopes}
+								selectedTemplateId={selectedTemplateId}
+								onSelectTemplate={setSelectedTemplateId}
+								onApplyTemplate={() => applySnippetTemplate(selectedTemplateId)}
+								error={error}
+							/>
+							<SnippetHistoryPanel
+								open={historyOpen}
+								entries={historyEntries}
+								activeIndex={historyActiveIndex}
+								canUndo={canUndo}
+								canRedo={canRedo}
+								onUndo={undo}
+								onRedo={redo}
+								onJump={jumpToHistory}
+							/>
+
+							<SnippetSettingsPanel
+								open={settingsOpen}
+								analysis={analysis}
+								analysisStatus={analysisStatus}
+								analysisError={analysisError}
+								includeTailwind={isPreviewVisible}
+								includeInspect={includeInspect}
+							/>
+
+							<SnippetExamplesPanel
+								open={examplesOpen}
+								examples={filteredExamples}
+								activeExample={activeExample}
+								activeExampleId={activeExampleId}
+								isPreviewActive={isExamplePreviewActive}
+								onSelectExample={setActiveExampleId}
+								onTogglePreview={() => setIsExamplePreviewActive((prev) => !prev)}
+								onApplyExample={applyExampleToEditor}
+							/>
+
+							<SnippetImportsPanel open={importsOpen} filters={importsFilters} />
+
+							{/* Center - Editor and Preview split */}
+							<section ref={splitContainerRef} className="flex flex-1 overflow-hidden">
+								<SnippetEditorPanel
+									containerRef={editorPanelRef}
+									editorCollapsed={editorCollapsed}
+									explorerCollapsed={explorerCollapsed}
+									openFiles={openFiles}
+									editorFiles={editorFiles}
+									editorFilesById={editorFilesById}
+									activeFile={activeFile}
+									activeFileMeta={activeFileMeta}
+									isSourceEditorActive={isSourceEditorActive}
+									isComponentEditorActive={isComponentEditorActive}
+									isPropsSchemaActive={isPropsSchemaActive}
+									isDefaultPropsActive={isDefaultPropsActive}
+									componentCount={componentCount}
+									hasComponentExports={componentExports.length > 0}
+									canAddComponent={canAddComponent}
+									overSoftComponentLimit={overSoftComponentLimit}
+									overHardComponentLimit={overHardComponentLimit}
+									onSelectFile={selectFile}
+									onCloseFileTab={closeFileTab}
+									onReorderOpenFiles={handleReorderOpenFiles}
+									onFileContextMenu={handleFileContextMenu}
+									onAddComponent={handleAddComponent}
+									fileInputRef={fileInputRef}
+									onSourceUpload={handleSourceFileUpload}
+									form={form}
+									mainEditorSource={mainEditorSource}
+									onMainSourceChange={handleMainSourceChange}
+									componentTypeLibs={componentTypeLibs}
+									componentDefinitionMap={componentDefinitionMap}
+									onDefinitionSelect={handleDefinitionSelect}
+									monacoMarkers={monacoMarkers}
+									hasActiveComponentFile={hasActiveComponentFile}
+									activeComponentSource={activeComponentSource}
+									activeComponentFileName={activeComponentFileName}
+									onComponentSourceChange={handleComponentSourceChange}
+									derivedDuplicateKeys={derivedProps.duplicateKeys}
+									compileStatus={compileStatus}
+									compileErrors={compileErrors}
+									inspectHighlight={inspectHighlight}
+									canUndo={canUndo}
+									canRedo={canRedo}
+									onUndo={undo}
+									onRedo={redo}
+								/>
+
+								<SnippetSplitViewResizer isHidden={editorCollapsed} onPointerDown={onResizeStart} />
+
+								{/* Preview panel - fills remaining width */}
+								<div
+									ref={previewContainerRef}
+									className="flex min-w-0 flex-1 flex-col overflow-hidden"
+								>
+									<SnippetPreview
+										compiledCode={previewCompiledCode}
+										props={previewPropsToUse}
+										tailwindCss={previewTailwindCss}
+										dimensions={previewDimensionsToUse}
+										className="h-full"
+										headerActions={previewHeaderActions}
+										inspectEnabled={inspectEnabled}
+										onInspectHover={onPreviewInspectHover}
+										onInspectSelect={handlePreviewInspectSelect}
+										onInspectContext={handleInspectContext}
+										onInspectEscape={handleInspectEscape}
+									/>
+								</div>
+							</section>
+						</form>
+					</Form>
+				</div>
+			)}
+		</ClientOnly>
 	)
 }

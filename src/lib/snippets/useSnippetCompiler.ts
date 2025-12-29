@@ -6,10 +6,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { MonacoMarker } from "@/components/ui/monaco-editor"
-import { type CompileError, compileSnippet } from "./compiler"
+import { compileSnippetInEngine } from "@/lib/engine/client"
+import type { AnalyzeTsxResponse } from "@/lib/engine/protocol"
+import type { CompileError } from "./compiler"
 import { SNIPPET_COMPONENT_LIMITS, SNIPPET_SOURCE_MAX_CHARS } from "./constraints"
-import { DEFAULT_SNIPPET_EXPORT, listSnippetComponentExports } from "./source-derived"
-import { analyzeSnippetSource, securityIssuesToCompileErrors } from "./source-security"
+import { DEFAULT_SNIPPET_EXPORT } from "./source-derived"
+import { hashSnippetSourceSync } from "./source-hash"
+import { securityIssuesToCompileErrors } from "./source-security"
 
 export type CompileStatus = "idle" | "compiling" | "success" | "error"
 
@@ -26,6 +29,10 @@ export interface UseSnippetCompilerOptions {
 	autoCompile?: boolean
 	/** Whether to generate Tailwind CSS for previews (default: false) */
 	enableTailwindCss?: boolean
+	/** Unified analysis result (security, exports, tailwind) */
+	analysis?: AnalyzeTsxResponse | null
+	/** Unique key to isolate engine stale tracking (default: "snippet-compile") */
+	engineKey?: string
 }
 
 export interface UseSnippetCompilerResult {
@@ -124,6 +131,8 @@ export function useSnippetCompiler({
 	debounceMs = 500,
 	autoCompile = true,
 	enableTailwindCss = false,
+	analysis = null,
+	engineKey = "snippet-compile",
 }: UseSnippetCompilerOptions): UseSnippetCompilerResult {
 	const [status, setStatus] = useState<CompileStatus>("idle")
 	const [compiledCode, setCompiledCode] = useState<string | null>(null)
@@ -140,12 +149,14 @@ export function useSnippetCompiler({
 	// Track source version to handle race conditions
 	const sourceVersionRef = useRef(0)
 	const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const isMountedRef = useRef(true)
 
 	// Core compile function
 	const doCompile = useCallback(
 		async (sourceToCompile: string, version: number) => {
 			// Skip empty source
 			if (!sourceToCompile.trim()) {
+				if (!isMountedRef.current) return
 				setStatus("idle")
 				setCompiledCode(null)
 				setErrors([])
@@ -155,6 +166,7 @@ export function useSnippetCompiler({
 			}
 
 			if (sourceToCompile.length > SNIPPET_SOURCE_MAX_CHARS) {
+				if (!isMountedRef.current) return
 				setStatus("error")
 				setErrors([
 					buildLimitError(
@@ -166,12 +178,38 @@ export function useSnippetCompiler({
 				return
 			}
 
+			const analysisHash =
+				analysis && typeof analysis.sourceHash === "number" ? analysis.sourceHash : null
+			const sourceHash = analysisHash !== null ? hashSnippetSourceSync(sourceToCompile) : null
+
+			if (!isMountedRef.current) return
+			setStatus("compiling")
+
 			try {
-				const componentExports = await listSnippetComponentExports(sourceToCompile)
-				if (version !== sourceVersionRef.current) {
+				const resolvedEntryExport =
+					typeof entryExport === "string" && entryExport.trim().length > 0
+						? entryExport
+						: DEFAULT_SNIPPET_EXPORT
+				const { data: result } = await compileSnippetInEngine(sourceToCompile, {
+					entryExport: resolvedEntryExport,
+					key: engineKey,
+				})
+				if (!isMountedRef.current) {
 					return
 				}
-				if (componentExports.length > SNIPPET_COMPONENT_LIMITS.hard) {
+
+				const analysisMatches =
+					analysis &&
+					analysisHash !== null &&
+					typeof sourceHash === "number" &&
+					analysisHash === sourceHash
+				const effectiveAnalysis = analysisMatches ? analysis : null
+
+				if (
+					effectiveAnalysis?.exports.length &&
+					effectiveAnalysis.exports.length > SNIPPET_COMPONENT_LIMITS.hard
+				) {
+					if (!isMountedRef.current) return
 					setStatus("error")
 					setErrors([
 						buildLimitError(
@@ -182,33 +220,18 @@ export function useSnippetCompiler({
 					setTailwindCss(null)
 					return
 				}
-			} catch {
-				if (version !== sourceVersionRef.current) {
-					return
-				}
-				// Ignore component export parsing errors; compile will surface syntax issues.
-			}
 
-			setStatus("compiling")
-
-			try {
-				const resolvedEntryExport =
-					typeof entryExport === "string" && entryExport.trim().length > 0
-						? entryExport
-						: DEFAULT_SNIPPET_EXPORT
-				const [result, securityIssues] = await Promise.all([
-					compileSnippet(sourceToCompile, resolvedEntryExport),
-					analyzeSnippetSource(sourceToCompile),
-				])
-
-				const securityErrors = securityIssuesToCompileErrors(securityIssues)
+				const securityErrors = effectiveAnalysis
+					? securityIssuesToCompileErrors(effectiveAnalysis.securityIssues)
+					: []
 
 				// Check if this is still the latest version
-				if (version !== sourceVersionRef.current) {
+				if (version !== sourceVersionRef.current || !isMountedRef.current) {
 					return // Stale result, ignore
 				}
 
 				if (securityErrors.length > 0) {
+					if (!isMountedRef.current) return
 					setStatus("error")
 					setCompiledCode(null)
 					setErrors([...securityErrors, ...result.errors])
@@ -218,32 +241,19 @@ export function useSnippetCompiler({
 				}
 
 				if (result.success && result.code) {
-					let nextTailwindCss: string | null = null
-					let tailwindError: CompileError | null = null
-
-					if (enableTailwindCss) {
-						try {
-							const { buildSnippetTailwindCss } = await import("./tailwind")
-							nextTailwindCss = await buildSnippetTailwindCss(sourceToCompile)
-						} catch (err) {
-							tailwindError = buildLimitError(
-								err instanceof Error ? err.message : "Failed to generate Tailwind CSS",
-							)
-						}
-					}
-
-					if (tailwindError) {
-						if (version !== sourceVersionRef.current) {
+					const tailwindErrorMessage = enableTailwindCss ? effectiveAnalysis?.tailwindError : null
+					if (tailwindErrorMessage) {
+						if (version !== sourceVersionRef.current || !isMountedRef.current) {
 							return
 						}
 						setStatus("error")
-						setErrors([...result.errors, tailwindError])
+						setErrors([...result.errors, buildLimitError(tailwindErrorMessage)])
 						setWarnings(result.warnings)
 						setTailwindCss(null)
 						return
 					}
 
-					if (version !== sourceVersionRef.current) {
+					if (version !== sourceVersionRef.current || !isMountedRef.current) {
 						return
 					}
 
@@ -251,21 +261,17 @@ export function useSnippetCompiler({
 					setCompiledCode(result.code)
 					setErrors([])
 					setWarnings(result.warnings)
-					if (enableTailwindCss) {
-						setTailwindCss(nextTailwindCss)
-					} else {
-						setTailwindCss(null)
-					}
+					setTailwindCss(enableTailwindCss ? (effectiveAnalysis?.tailwindCss ?? null) : null)
 				} else {
+					if (!isMountedRef.current) return
 					setStatus("error")
 					// Keep last successful code for preview (shows last working version)
 					setErrors(result.errors)
 					setWarnings(result.warnings)
-					setTailwindCss(null)
 				}
 			} catch (err) {
 				// Check if this is still the latest version
-				if (version !== sourceVersionRef.current) {
+				if (version !== sourceVersionRef.current || !isMountedRef.current) {
 					return
 				}
 
@@ -278,10 +284,9 @@ export function useSnippetCompiler({
 						severity: "error",
 					},
 				])
-				setTailwindCss(null)
 			}
 		},
-		[enableTailwindCss, entryExport],
+		[analysis, enableTailwindCss, entryExport, engineKey],
 	)
 
 	// Manual compile function
@@ -313,6 +318,47 @@ export function useSnippetCompiler({
 			}
 		}
 	}, [source, debounceMs, autoCompile, doCompile])
+
+	// React StrictMode mounts, unmounts, then remounts; re-arm to avoid stale false.
+	useEffect(() => {
+		isMountedRef.current = true
+		return () => {
+			isMountedRef.current = false
+		}
+	}, [])
+
+	useEffect(() => {
+		if (!analysis) return
+		if (!compiledCode || status !== "success") return
+		const analysisHash = typeof analysis.sourceHash === "number" ? analysis.sourceHash : null
+		if (analysisHash === null) return
+		const currentHash = hashSnippetSourceSync(source)
+		if (analysisHash !== currentHash) return
+
+		const securityErrors = securityIssuesToCompileErrors(analysis.securityIssues)
+		if (securityErrors.length > 0) {
+			if (!isMountedRef.current) return
+			setStatus("error")
+			setCompiledCode(null)
+			setErrors(securityErrors)
+			setTailwindCss(null)
+			return
+		}
+
+		if (!enableTailwindCss) return
+
+		if (analysis.tailwindError) {
+			if (!isMountedRef.current) return
+			setStatus("error")
+			setErrors([buildLimitError(analysis.tailwindError)])
+			setTailwindCss(null)
+			return
+		}
+
+		if (analysis.tailwindCss !== null && analysis.tailwindCss !== tailwindCss) {
+			setTailwindCss(analysis.tailwindCss)
+		}
+	}, [analysis, compiledCode, enableTailwindCss, source, status, tailwindCss])
 
 	useEffect(() => {
 		if (enableTailwindCss) return

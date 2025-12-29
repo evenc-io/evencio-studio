@@ -1,0 +1,83 @@
+const std = @import("std");
+const common = @import("snippet/common.zig");
+const tailwind = @import("snippet/tailwind.zig");
+const security = @import("snippet/security.zig");
+const inspect = @import("snippet/inspect.zig");
+const hash = @import("snippet/hash.zig");
+
+const allocator = common.allocator;
+
+/// Allocates a buffer in the WASM heap for the JS bridge to write into.
+export fn alloc(len: usize) usize {
+    if (len == 0) return 0;
+    const buf = allocator.alloc(u8, len) catch return 0;
+    return @intFromPtr(buf.ptr);
+}
+
+/// Frees a buffer returned by alloc() or scan_* exports.
+export fn free(ptr: usize, len: usize) void {
+    if (ptr == 0 or len == 0) return;
+    const slice = @as([*]u8, @ptrFromInt(ptr))[0..len];
+    allocator.free(slice);
+}
+
+/// Scans Tailwind class candidates and returns a newline-delimited string.
+export fn scan_tailwind_candidates(ptr: usize, len: usize, out_len_ptr: usize) usize {
+    if (ptr == 0 or len == 0 or out_len_ptr == 0) return 0;
+
+    const source = @as([*]const u8, @ptrFromInt(ptr))[0..len];
+    const out = tailwind.scanTailwindCandidates(source) catch return 0;
+    const out_len = @min(out.len, @as(usize, std.math.maxInt(u32)));
+
+    const out_len_ptr_u32 = @as(*u32, @ptrFromInt(out_len_ptr));
+    out_len_ptr_u32.* = @intCast(out_len);
+
+    if (out_len == 0) {
+        return 0;
+    }
+
+    return @intFromPtr(out.ptr);
+}
+
+/// Scans for disallowed imports, globals, and calls.
+export fn scan_security_issues(ptr: usize, len: usize, out_len_ptr: usize) usize {
+    if (ptr == 0 or len == 0 or out_len_ptr == 0) return 0;
+
+    const source = @as([*]const u8, @ptrFromInt(ptr))[0..len];
+    const out = security.scanSecurityIssues(source) catch return 0;
+    const out_len = @min(out.len, @as(usize, std.math.maxInt(u32)));
+
+    const out_len_ptr_u32 = @as(*u32, @ptrFromInt(out_len_ptr));
+    out_len_ptr_u32.* = @intCast(out_len);
+
+    if (out_len == 0) {
+        return 0;
+    }
+
+    return @intFromPtr(out.ptr);
+}
+
+/// Builds the JSX inspect index for preview highlighting.
+export fn scan_inspect_index(ptr: usize, len: usize, out_len_ptr: usize) usize {
+    if (ptr == 0 or len == 0 or out_len_ptr == 0) return 0;
+
+    const source = @as([*]const u8, @ptrFromInt(ptr))[0..len];
+    const out = inspect.scanInspectIndex(source) catch return 0;
+    const out_len = @min(out.len, @as(usize, std.math.maxInt(u32)));
+
+    const out_len_ptr_u32 = @as(*u32, @ptrFromInt(out_len_ptr));
+    out_len_ptr_u32.* = @intCast(out_len);
+
+    if (out_len == 0) {
+        return 0;
+    }
+
+    return @intFromPtr(out.ptr);
+}
+
+/// Returns the 32-bit FNV-1a hash of the source bytes.
+export fn hash_bytes(ptr: usize, len: usize) u32 {
+    if (ptr == 0 or len == 0) return 0;
+    const source = @as([*]const u8, @ptrFromInt(ptr))[0..len];
+    return hash.hashBytes(source);
+}

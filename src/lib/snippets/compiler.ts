@@ -6,6 +6,7 @@
  */
 
 import type * as esbuild from "esbuild-wasm"
+import { withTimeout } from "./async-timeout"
 import { expandSnippetSource } from "./source-files"
 
 // Types
@@ -29,18 +30,32 @@ export interface CompileResult {
 let esbuildInstance: typeof esbuild | null = null
 let initPromise: Promise<typeof esbuild> | null = null
 let initError: Error | null = null
+let initErrorAt = 0
+
+const INIT_TIMEOUT_MS = 6000
+const INIT_RETRY_MS = 1500
 
 /**
  * Lazily initialize esbuild-wasm.
  * Only loads the WASM binary on first compile, avoiding bundle bloat.
  */
-const isBrowserRuntime =
-	typeof window !== "undefined" && typeof document !== "undefined" && typeof Bun === "undefined"
+const hasWorkerGlobalScope = typeof self !== "undefined" && "WorkerGlobalScope" in self
+const isServerRuntime =
+	typeof Bun !== "undefined" || (typeof process !== "undefined" && Boolean(process.versions?.node))
+const isBrowserRuntime = !isServerRuntime && (typeof window !== "undefined" || hasWorkerGlobalScope)
 
 async function resolveBrowserWasmUrl(): Promise<string | undefined> {
 	if (!isBrowserRuntime) return undefined
-	const wasmModule = await import("esbuild-wasm/esbuild.wasm?url")
-	return wasmModule.default
+	try {
+		const wasmModule = await import("esbuild-wasm/esbuild.wasm?url")
+		return wasmModule.default
+	} catch {
+		try {
+			return new URL("esbuild-wasm/esbuild.wasm", import.meta.url).toString()
+		} catch {
+			return undefined
+		}
+	}
 }
 
 async function getEsbuild(): Promise<typeof esbuild> {
@@ -51,7 +66,10 @@ async function getEsbuild(): Promise<typeof esbuild> {
 
 	// Return cached error if initialization previously failed
 	if (initError) {
-		throw initError
+		if (Date.now() - initErrorAt < INIT_RETRY_MS) {
+			throw initError
+		}
+		initError = null
 	}
 
 	// Return existing promise if initialization is in progress
@@ -60,27 +78,33 @@ async function getEsbuild(): Promise<typeof esbuild> {
 	}
 
 	// Start initialization
-	initPromise = (async () => {
-		try {
+	initPromise = withTimeout(
+		(async () => {
 			const esbuildModule = await import("esbuild-wasm")
 
-			const wasmURL = await resolveBrowserWasmUrl()
 			const initOptions: esbuild.InitializeOptions = {
 				worker: false,
 			}
-			if (wasmURL) {
+			if (isBrowserRuntime) {
+				const wasmURL = await resolveBrowserWasmUrl()
+				if (!wasmURL) {
+					throw new Error("Failed to resolve esbuild WASM binary")
+				}
 				initOptions.wasmURL = wasmURL
 			}
 			await esbuildModule.initialize(initOptions)
 
 			esbuildInstance = esbuildModule
 			return esbuildModule
-		} catch (err) {
-			initError = err instanceof Error ? err : new Error(String(err))
-			initPromise = null
-			throw initError
-		}
-	})()
+		})(),
+		INIT_TIMEOUT_MS,
+		"esbuild initialization timed out",
+	).catch((err) => {
+		initError = err instanceof Error ? err : new Error(String(err))
+		initErrorAt = Date.now()
+		initPromise = null
+		throw initError
+	})
 
 	return initPromise
 }

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
+import type { SnippetInspectIndex } from "@/lib/snippets/inspect-index"
+import { createInspectLookup } from "@/lib/snippets/inspect-index"
 import type { PreviewSourceLocation } from "@/lib/snippets/preview-runtime"
 import type { SnippetEditorFileId } from "@/routes/-snippets/new/snippet-editor-types"
 import { getComponentFileName, isComponentFileId } from "@/routes/-snippets/new/snippet-file-utils"
@@ -28,6 +30,7 @@ interface UseSnippetInspectOptions {
 	activeFile: SnippetEditorFileId
 	isExamplePreviewActive: boolean
 	onOpenFileForInspect: (fileId: SnippetEditorFileId) => void
+	inspectIndexByFileId?: Record<string, SnippetInspectIndex | null>
 }
 
 interface UseSnippetInspectResult {
@@ -49,6 +52,7 @@ export function useSnippetInspect({
 	activeFile,
 	isExamplePreviewActive,
 	onOpenFileForInspect,
+	inspectIndexByFileId,
 }: UseSnippetInspectOptions): UseSnippetInspectResult {
 	const [inspectMode, setInspectMode] = useState(false)
 	const [inspectHover, setInspectHover] = useState<SnippetInspectTarget | null>(null)
@@ -108,12 +112,43 @@ export function useSnippetInspect({
 		[componentFiles, mainEditorSource],
 	)
 
-	const activeSource = useMemo(() => getSourceForFile(activeFile), [activeFile, getSourceForFile])
+	const createLocatorFromIndex = useCallback((index: SnippetInspectIndex, source: string) => {
+		const lookup = createInspectLookup(index, source)
+		return {
+			findMatch: (line: number, column: number) => {
+				const entry = lookup.findMatch(line, column)
+				if (!entry) return null
+				return {
+					startLine: entry.range.startLine,
+					endLine: entry.range.endLine,
+					textRanges: entry.textRanges,
+					elementRange: entry.elementRange,
+					elementType: entry.elementType,
+					elementName: entry.elementName,
+				}
+			},
+		}
+	}, [])
 
-	const elementLocator = useMemo(
-		() => createSnippetElementLocator(inspectMode ? activeSource : ""),
-		[activeSource, inspectMode],
+	const getLocatorForFile = useCallback(
+		(fileId: SnippetEditorFileId) => {
+			const source = getSourceForFile(fileId)
+			if (!source || source.trim().length === 0) {
+				return createSnippetElementLocator("")
+			}
+			const index = inspectIndexByFileId?.[fileId]
+			if (index) {
+				return createLocatorFromIndex(index, source)
+			}
+			return createSnippetElementLocator(source)
+		},
+		[createLocatorFromIndex, getSourceForFile, inspectIndexByFileId],
 	)
+
+	const elementLocator = useMemo(() => {
+		if (!inspectMode) return createSnippetElementLocator("")
+		return getLocatorForFile(activeFile)
+	}, [activeFile, getLocatorForFile, inspectMode])
 
 	const resolveHighlight = useCallback(
 		(target: SnippetInspectTarget | null, kind: "hover" | "select") => {
@@ -134,8 +169,7 @@ export function useSnippetInspect({
 
 	const buildInspectTextRequest = useCallback(
 		(target: SnippetInspectTarget) => {
-			const source = getSourceForFile(target.fileId)
-			const locator = createSnippetElementLocator(source)
+			const locator = getLocatorForFile(target.fileId)
 			const match = locator.findMatch(target.line, target.column)
 			const ranges = match?.textRanges ?? []
 			const range =
@@ -150,7 +184,7 @@ export function useSnippetInspect({
 				elementName: match?.elementName ?? null,
 			}
 		},
-		[getSourceForFile],
+		[getLocatorForFile],
 	)
 
 	useEffect(() => {

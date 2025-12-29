@@ -10,12 +10,32 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const nitroPreset =
 	process.env.NITRO_PRESET ?? process.env.SERVER_PRESET ?? (process.env.VERCEL ? "vercel" : "bun")
 
+const vendorChunks = (id: string) => {
+	if (!id.includes("node_modules")) return undefined
+	if (id.includes("monaco-editor")) return "monaco"
+	if (id.includes("esbuild-wasm")) return "esbuild"
+	if (id.includes("html2canvas")) return "html2canvas"
+	if (id.includes("jspdf")) return "jspdf"
+	if (id.includes("sortablejs")) return "sortable"
+	if (id.includes("dompurify")) return "dompurify"
+	if (id.includes("@babel/parser")) return "babel"
+	return undefined
+}
+
 const config = defineConfig({
 	server: {
 		port: 3000,
 	},
 	build: {
 		chunkSizeWarningLimit: 700,
+		rollupOptions: {
+			output: {
+				manualChunks: vendorChunks,
+			},
+		},
+	},
+	worker: {
+		format: "es",
 	},
 	resolve: {
 		alias: {

@@ -1,8 +1,8 @@
-import { type MutableRefObject, useCallback, useEffect, useRef, useState } from "react"
+import { type MutableRefObject, useCallback, useEffect, useState } from "react"
 import type { UseFormReturn } from "react-hook-form"
+import type { AnalyzeTsxResponse } from "@/lib/engine/protocol"
 import {
 	getSnippetComponentSourceMap,
-	listSnippetComponentExports,
 	parseSnippetFiles,
 	removeSnippetComponentExport,
 	type SnippetComponentExport,
@@ -15,42 +15,27 @@ interface UseSnippetComponentExportsOptions {
 	source: string
 	form: UseFormReturn<CustomSnippetValues>
 	fileMigrationRef: MutableRefObject<boolean>
+	analysis: AnalyzeTsxResponse | null
 }
 
 export function useSnippetComponentExports({
 	source,
 	form,
 	fileMigrationRef,
+	analysis,
 }: UseSnippetComponentExportsOptions) {
 	const [componentExports, setComponentExports] = useState<SnippetComponentExport[]>([])
 	const [componentExportsLoaded, setComponentExportsLoaded] = useState(false)
-	const exportVersionRef = useRef(0)
 
 	const resetComponentExports = useCallback(() => {
 		setComponentExportsLoaded(false)
 	}, [])
 
 	useEffect(() => {
-		let isCancelled = false
-		const version = ++exportVersionRef.current
-		const timer = setTimeout(async () => {
-			try {
-				const exportEntries = await listSnippetComponentExports(source)
-				if (isCancelled || version !== exportVersionRef.current) return
-				setComponentExports(exportEntries)
-				setComponentExportsLoaded(true)
-			} catch {
-				if (isCancelled || version !== exportVersionRef.current) return
-				setComponentExports([])
-				setComponentExportsLoaded(true)
-			}
-		}, 250)
-
-		return () => {
-			isCancelled = true
-			clearTimeout(timer)
-		}
-	}, [source])
+		if (!analysis) return
+		setComponentExports(analysis.exports)
+		setComponentExportsLoaded(true)
+	}, [analysis])
 
 	useEffect(() => {
 		if (fileMigrationRef.current) return

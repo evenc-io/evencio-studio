@@ -22,7 +22,7 @@ export type ScreenGateInfo = {
 	screen: { width: number; height: number }
 }
 
-const emptyGateState: ScreenGateInfo = {
+export const SCREEN_GUARD_EMPTY: ScreenGateInfo = {
 	status: "unknown",
 	viewport: { width: 0, height: 0 },
 	screen: { width: 0, height: 0 },
@@ -32,7 +32,7 @@ export const getScreenGateInfo = (
 	config: ScreenGuardConfig = SCREEN_GUARD_DEFAULTS,
 ): ScreenGateInfo => {
 	if (typeof window === "undefined") {
-		return emptyGateState
+		return SCREEN_GUARD_EMPTY
 	}
 
 	const viewportWidth = window.innerWidth

@@ -2,8 +2,7 @@ import type { ComponentType } from "react"
 import type { SnippetProps, SnippetRuntime } from "@/types/asset-library"
 import LaunchHero from "./launch-hero"
 
-// Re-export compiler, preview runtime, and hook
-export * from "./compiler"
+// Re-export preview runtime and hook
 export * from "./preview-runtime"
 export {
 	DEFAULT_SNIPPET_EXPORT,
