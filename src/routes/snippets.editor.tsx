@@ -4,7 +4,9 @@ import { FileCode } from "lucide-react"
 import { nanoid } from "nanoid"
 import {
 	type ChangeEvent,
+	lazy,
 	type MouseEvent,
+	Suspense,
 	useCallback,
 	useEffect,
 	useMemo,
@@ -34,6 +36,7 @@ import {
 import { SNIPPET_EXAMPLES } from "@/lib/snippets/examples"
 import {
 	DEFAULT_PREVIEW_DIMENSIONS,
+	type PreviewLayerSnapshot,
 	type PreviewSourceLocation,
 } from "@/lib/snippets/preview-runtime"
 import { SNIPPET_TEMPLATES, type SnippetTemplateId } from "@/lib/snippets/templates"
@@ -75,6 +78,13 @@ import {
 	customSnippetSchema,
 	parseTagInput,
 } from "@/routes/-snippets/new/schema"
+
+const LazySnippetLayers3DView = lazy(() =>
+	import("@/routes/-snippets/new/components/snippet-layers-3d").then((module) => ({
+		default: module.SnippetLayers3DView,
+	})),
+)
+
 import {
 	buildSnippetAttribution,
 	buildSnippetLicense,
@@ -134,6 +144,13 @@ function NewSnippetPage() {
 	const [isSubmitting, setIsSubmitting] = useState(false)
 	const [useComponentDefaults, setUseComponentDefaults] = useState(false)
 	const [inspectTextEdit, setInspectTextEdit] = useState<InspectTextEditState | null>(null)
+	const [layers3dOpen, setLayers3dOpen] = useState(false)
+	const [layersSnapshot, setLayersSnapshot] = useState<PreviewLayerSnapshot | null>(null)
+	const [layersError, setLayersError] = useState<string | null>(null)
+	const [layersRequestToken, setLayersRequestToken] = useState(0)
+	const [selectedInspectSource, setSelectedInspectSource] = useState<PreviewSourceLocation | null>(
+		null,
+	)
 	const [openFiles, setOpenFiles] = useState<SnippetEditorFileId[]>(() =>
 		SNIPPET_FILES.map((file) => file.id),
 	)
@@ -712,6 +729,34 @@ function NewSnippetPage() {
 		lineMapSegments: analysis?.lineMapSegments,
 	})
 
+	const handleLayersSnapshot = useCallback((snapshot: PreviewLayerSnapshot) => {
+		setLayersSnapshot(snapshot)
+		setLayersError(null)
+	}, [])
+
+	const handleLayersError = useCallback((nextError: string) => {
+		setLayersError(nextError)
+	}, [])
+
+	const requestLayersSnapshot = useCallback(() => {
+		setLayersRequestToken((prev) => prev + 1)
+	}, [])
+
+	useEffect(() => {
+		if (!layers3dOpen) {
+			setLayersSnapshot(null)
+			setLayersError(null)
+			return
+		}
+		requestLayersSnapshot()
+	}, [layers3dOpen, requestLayersSnapshot])
+
+	useEffect(() => {
+		if (!inspectEnabled) {
+			setSelectedInspectSource(null)
+		}
+	}, [inspectEnabled])
+
 	const buildTextRangeFromValue = useCallback((range: SnippetTextRange, rawValue: string) => {
 		const lines = rawValue.split(/\r?\n/)
 		if (lines.length <= 1) {
@@ -911,7 +956,11 @@ function NewSnippetPage() {
 			},
 		) => {
 			onPreviewInspectSelect(source)
-			if (!source && meta?.reason === "reset") return
+			if (!source && meta?.reason === "reset") {
+				setSelectedInspectSource(null)
+				return
+			}
+			setSelectedInspectSource(source)
 			if (inspectTextEdit) {
 				closeInspectTextEdit()
 			}
@@ -1465,6 +1514,13 @@ export const ${name} = ({ title = "New snippet" }) => {
 	const previewDimensionsToUse = isExamplePreviewing
 		? examplePreviewDimensions
 		: snippetPreviewDimensions
+
+	useEffect(() => {
+		if (!layers3dOpen) return
+		if (!previewCompiledCode) {
+			setLayersSnapshot(null)
+		}
+	}, [layers3dOpen, previewCompiledCode])
 	const previewHeaderActions = (
 		<SnippetPreviewHeaderActions
 			isExamplePreviewing={isExamplePreviewing}
@@ -1475,6 +1531,8 @@ export const ${name} = ({ title = "New snippet" }) => {
 			onToggleDefaults={() => setUseComponentDefaults((prev) => !prev)}
 			inspectEnabled={inspectMode}
 			onToggleInspect={() => setInspectMode((prev) => !prev)}
+			layers3dEnabled={layers3dOpen}
+			onToggleLayers3d={() => setLayers3dOpen((prev) => !prev)}
 		/>
 	)
 	const inspectEditorLabel = inspectTextEdit
@@ -1650,7 +1708,7 @@ export const ${name} = ({ title = "New snippet" }) => {
 								{/* Preview panel - fills remaining width */}
 								<div
 									ref={previewContainerRef}
-									className="flex min-w-0 flex-1 flex-col overflow-hidden"
+									className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
 								>
 									<SnippetPreview
 										compiledCode={previewCompiledCode}
@@ -1664,7 +1722,32 @@ export const ${name} = ({ title = "New snippet" }) => {
 										onInspectSelect={handlePreviewInspectSelect}
 										onInspectContext={handleInspectContext}
 										onInspectEscape={handleInspectEscape}
+										layersEnabled={layers3dOpen}
+										layersRequestToken={layersRequestToken}
+										onLayersSnapshot={handleLayersSnapshot}
+										onLayersError={handleLayersError}
 									/>
+									{layers3dOpen && (
+										<div className="absolute inset-0 z-30">
+											<Suspense
+												fallback={
+													<div className="flex h-full items-center justify-center bg-white text-xs text-neutral-500">
+														Loading layers...
+													</div>
+												}
+											>
+												<LazySnippetLayers3DView
+													snapshot={layersSnapshot}
+													error={layersError}
+													selectedSource={selectedInspectSource}
+													onSelectSource={handlePreviewInspectSelect}
+													onRequestRefresh={requestLayersSnapshot}
+													onClose={() => setLayers3dOpen(false)}
+													className="h-full"
+												/>
+											</Suspense>
+										</div>
+									)}
 								</div>
 							</section>
 						</form>
