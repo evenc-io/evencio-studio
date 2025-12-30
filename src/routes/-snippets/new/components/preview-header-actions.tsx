@@ -10,6 +10,8 @@ interface SnippetPreviewHeaderActionsProps {
 	onToggleDefaults: () => void
 	inspectEnabled?: boolean
 	onToggleInspect?: () => void
+	layers3dEnabled?: boolean
+	onToggleLayers3d?: () => void
 }
 
 export function SnippetPreviewHeaderActions({
@@ -21,6 +23,8 @@ export function SnippetPreviewHeaderActions({
 	onToggleDefaults,
 	inspectEnabled = false,
 	onToggleInspect,
+	layers3dEnabled = false,
+	onToggleLayers3d,
 }: SnippetPreviewHeaderActionsProps) {
 	if (isExamplePreviewing) {
 		return (
@@ -40,6 +44,23 @@ export function SnippetPreviewHeaderActions({
 				>
 					Back to snippet
 				</Button>
+				{onToggleLayers3d && (
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className={cn(
+							"h-6 px-2 text-[11px]",
+							layers3dEnabled
+								? "bg-neutral-900 text-white hover:bg-neutral-800"
+								: "text-neutral-500 hover:text-neutral-700",
+						)}
+						aria-pressed={layers3dEnabled}
+						onClick={onToggleLayers3d}
+					>
+						Layers 3D
+					</Button>
+				)}
 			</>
 		)
 	}
@@ -49,6 +70,23 @@ export function SnippetPreviewHeaderActions({
 			<span className="max-w-[140px] truncate text-[11px] text-neutral-500">
 				Component: {activeComponentLabel}
 			</span>
+			{onToggleLayers3d && (
+				<Button
+					type="button"
+					variant="ghost"
+					size="sm"
+					className={cn(
+						"h-6 px-2 text-[11px]",
+						layers3dEnabled
+							? "bg-neutral-900 text-white hover:bg-neutral-800"
+							: "text-neutral-500 hover:text-neutral-700",
+					)}
+					aria-pressed={layers3dEnabled}
+					onClick={onToggleLayers3d}
+				>
+					Layers 3D
+				</Button>
+			)}
 			{onToggleInspect && (
 				<Button
 					type="button"

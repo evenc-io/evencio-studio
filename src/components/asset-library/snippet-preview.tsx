@@ -13,6 +13,7 @@ import {
 	DEFAULT_PREVIEW_DIMENSIONS,
 	generatePreviewSrcdoc,
 	type PreviewDimensions,
+	type PreviewLayerSnapshot,
 	type PreviewMessage,
 	type PreviewSourceLocation,
 } from "@/lib/snippets/preview-runtime"
@@ -48,6 +49,14 @@ export interface SnippetPreviewProps {
 	}) => void
 	/** Called when the preview reports escape while inspecting */
 	onInspectEscape?: () => void
+	/** Enable layers snapshot reporting */
+	layersEnabled?: boolean
+	/** Triggers a fresh layers snapshot request */
+	layersRequestToken?: number
+	/** Called when the preview reports a layers snapshot */
+	onLayersSnapshot?: (snapshot: PreviewLayerSnapshot) => void
+	/** Called when the preview reports a layers error */
+	onLayersError?: (error: string) => void
 }
 
 export type PreviewStatus = "idle" | "loading" | "success" | "error"
@@ -66,6 +75,10 @@ export function SnippetPreview({
 	onInspectSelect,
 	onInspectContext,
 	onInspectEscape,
+	layersEnabled = false,
+	layersRequestToken = 0,
+	onLayersSnapshot,
+	onLayersError,
 }: SnippetPreviewProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null)
 	const containerRef = useRef<HTMLDivElement>(null)
@@ -83,6 +96,9 @@ export function SnippetPreview({
 	const onInspectEscapeRef = useRef(onInspectEscape)
 	const onRenderSuccessRef = useRef(onRenderSuccess)
 	const onRenderErrorRef = useRef(onRenderError)
+	const onLayersSnapshotRef = useRef(onLayersSnapshot)
+	const onLayersErrorRef = useRef(onLayersError)
+	const layersEnabledRef = useRef(Boolean(layersEnabled))
 
 	useEffect(() => {
 		onInspectHoverRef.current = onInspectHover
@@ -91,6 +107,9 @@ export function SnippetPreview({
 		onInspectEscapeRef.current = onInspectEscape
 		onRenderSuccessRef.current = onRenderSuccess
 		onRenderErrorRef.current = onRenderError
+		onLayersSnapshotRef.current = onLayersSnapshot
+		onLayersErrorRef.current = onLayersError
+		layersEnabledRef.current = Boolean(layersEnabled)
 	}, [
 		onInspectHover,
 		onInspectSelect,
@@ -98,6 +117,9 @@ export function SnippetPreview({
 		onInspectEscape,
 		onRenderSuccess,
 		onRenderError,
+		onLayersSnapshot,
+		onLayersError,
+		layersEnabled,
 	])
 
 	// Handle messages from the iframe
@@ -116,6 +138,13 @@ export function SnippetPreview({
 			switch (data.type) {
 				case "ready":
 					iframeReadyRef.current = true
+					if (layersEnabledRef.current) {
+						iframeRef.current?.contentWindow?.postMessage(
+							{ type: "layers-toggle", enabled: true },
+							"*",
+						)
+						iframeRef.current?.contentWindow?.postMessage({ type: "layers-request" }, "*")
+					}
 					break
 				case "render-success":
 					setStatus("success")
@@ -147,6 +176,16 @@ export function SnippetPreview({
 				}
 				case "inspect-escape":
 					onInspectEscapeRef.current?.()
+					break
+				case "layers-snapshot":
+					if (data.snapshot) {
+						onLayersSnapshotRef.current?.(data.snapshot)
+					}
+					break
+				case "layers-error":
+					if (data.error) {
+						onLayersErrorRef.current?.(data.error)
+					}
 					break
 			}
 		},
@@ -258,6 +297,24 @@ export function SnippetPreview({
 			"*",
 		)
 	}, [inspectEnabled, status])
+
+	useEffect(() => {
+		const iframe = iframeRef.current
+		if (!iframe?.contentWindow || !iframeReadyRef.current) return
+		const enabled = Boolean(layersEnabled)
+		iframe.contentWindow.postMessage({ type: "layers-toggle", enabled }, "*")
+		if (enabled) {
+			iframe.contentWindow.postMessage({ type: "layers-request" }, "*")
+		}
+	}, [layersEnabled])
+
+	useEffect(() => {
+		if (!layersEnabledRef.current) return
+		if (!layersRequestToken) return
+		const iframe = iframeRef.current
+		if (!iframe?.contentWindow || !iframeReadyRef.current) return
+		iframe.contentWindow.postMessage({ type: "layers-request" }, "*")
+	}, [layersRequestToken])
 
 	useEffect(() => {
 		const element = containerRef.current
