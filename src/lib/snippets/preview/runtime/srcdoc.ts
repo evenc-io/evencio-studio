@@ -253,6 +253,7 @@ export function generatePreviewSrcdoc(
 
       const INSPECT_HOVER = "#FF0066";
       const INSPECT_SELECTED = "#0066FF";
+      const INSPECT_PARENT = "#00B37E";
       const INSPECT_LABEL_BG = "#FFFFFF";
       const INSPECT_LABEL_TEXT = "#1E1E1E";
       const resolveInspectableTarget = (target) => {
@@ -345,7 +346,15 @@ export function generatePreviewSrcdoc(
         const hoverLabel = createLabel(INSPECT_HOVER);
         const selectedBox = createBox(INSPECT_SELECTED);
         const selectedLabel = createLabel(INSPECT_SELECTED);
+        const parentBox = createBox(INSPECT_PARENT);
+        const parentLabel = createLabel(INSPECT_PARENT);
 
+        parentBox.style.borderStyle = "dashed";
+        parentBox.style.borderWidth = "1px";
+        parentBox.style.opacity = "0.9";
+
+        overlay.appendChild(parentBox);
+        overlay.appendChild(parentLabel.container);
         overlay.appendChild(selectedBox);
         overlay.appendChild(selectedLabel.container);
         overlay.appendChild(hoverBox);
@@ -436,7 +445,8 @@ export function generatePreviewSrcdoc(
           setEnabled(enabled) {
             overlay.style.display = enabled ? "block" : "none";
           },
-          update({ hovered, selected }) {
+          update({ hovered, selected, parent }) {
+            updateBox(parentBox, parentLabel, parent, "Parent");
             updateBox(selectedBox, selectedLabel, selected, "Selected");
             const hoverTarget = hovered && hovered !== selected ? hovered : null;
             updateBox(hoverBox, hoverLabel, hoverTarget, "");
@@ -477,15 +487,28 @@ export function generatePreviewSrcdoc(
         parent.postMessage({ type, source: source ?? null, ...(payload ?? {}) }, "*");
       };
 
+      const resolveLayoutParentTarget = () => {
+        if (!layoutState.enabled) return null;
+        const target = layoutState.active ?? inspectState.selected;
+        if (!target) return null;
+        const parent = target.parentElement;
+        if (!parent) return null;
+        const container = document.getElementById("snippet-container");
+        if (container && !container.contains(parent)) return null;
+        return parent;
+      };
+
       const updateInspectOverlay = () => {
-        if (!inspectState.enabled) {
+        const showOverlay = inspectState.enabled || layoutState.enabled;
+        if (!showOverlay) {
           inspectOverlay.setEnabled(false);
           return;
         }
         inspectOverlay.setEnabled(true);
         inspectOverlay.update({
-          hovered: inspectState.hovered,
-          selected: inspectState.selected,
+          hovered: inspectState.enabled ? inspectState.hovered : null,
+          selected: inspectState.enabled ? inspectState.selected : null,
+          parent: resolveLayoutParentTarget(),
         });
       };
 
@@ -567,6 +590,7 @@ export function generatePreviewSrcdoc(
         latestY: 0,
         baseTranslate: { x: 0, y: 0 },
         currentTranslate: { x: 0, y: 0 },
+        bounds: null,
         raf: 0,
         bodyUserSelect: "",
         commitPending: false,
@@ -627,6 +651,72 @@ export function generatePreviewSrcdoc(
         dx: layoutState.latestX - layoutState.startX,
         dy: layoutState.latestY - layoutState.startY,
       });
+
+      const clampValue = (value, min, max) => {
+        if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) {
+          return value;
+        }
+        if (min <= max) {
+          return Math.min(Math.max(value, min), max);
+        }
+        return Math.min(Math.max(value, max), min);
+      };
+
+      const snapshotRect = (rect) => {
+        if (!rect) return null;
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        };
+      };
+
+      const buildLayoutBounds = (element) => {
+        if (!element || !(element instanceof Element)) return null;
+        const parent = element.parentElement;
+        if (!parent) return null;
+        const elementRect = snapshotRect(element.getBoundingClientRect());
+        const parentRect = snapshotRect(parent.getBoundingClientRect());
+        if (!elementRect || !parentRect) return null;
+        if (
+          !Number.isFinite(elementRect.width) ||
+          !Number.isFinite(elementRect.height) ||
+          elementRect.width <= 0 ||
+          elementRect.height <= 0
+        ) {
+          return null;
+        }
+        if (
+          !Number.isFinite(parentRect.width) ||
+          !Number.isFinite(parentRect.height) ||
+          parentRect.width <= 0 ||
+          parentRect.height <= 0
+        ) {
+          return null;
+        }
+        return { elementRect, parentRect };
+      };
+
+      const constrainTranslateToParent = (translate) => {
+        const bounds = layoutState.bounds;
+        if (!bounds) return translate;
+        const base = layoutState.baseTranslate;
+        const deltaX = translate.x - base.x;
+        const deltaY = translate.y - base.y;
+        const minX = bounds.parentRect.left - bounds.elementRect.left;
+        const maxX = bounds.parentRect.right - bounds.elementRect.right;
+        const minY = bounds.parentRect.top - bounds.elementRect.top;
+        const maxY = bounds.parentRect.bottom - bounds.elementRect.bottom;
+        const clampedDeltaX = clampValue(deltaX, minX, maxX);
+        const clampedDeltaY = clampValue(deltaY, minY, maxY);
+        return {
+          x: base.x + clampedDeltaX,
+          y: base.y + clampedDeltaY,
+        };
+      };
 
       const buildLayoutDebugEntry = (kind, event, target, extra) => {
         const { dx, dy } = computeDragDelta();
@@ -702,10 +792,10 @@ export function generatePreviewSrcdoc(
       const applyLayoutTranslate = () => {
         if (!layoutState.dragging || !layoutState.active) return;
         const { dx, dy } = computeDragDelta();
-        const nextTranslate = {
+        const nextTranslate = constrainTranslateToParent({
           x: layoutState.baseTranslate.x + dx,
           y: layoutState.baseTranslate.y + dy,
-        };
+        });
         layoutState.currentTranslate = nextTranslate;
         layoutState.active.style.translate = nextTranslate.x + "px " + nextTranslate.y + "px";
         elementTranslateMap.set(layoutState.active, nextTranslate);
@@ -735,6 +825,7 @@ export function generatePreviewSrcdoc(
         const translate = layoutState.currentTranslate;
         layoutState.active = null;
         layoutState.pointerId = null;
+        layoutState.bounds = null;
         document.removeEventListener("pointermove", handleLayoutPointerMove);
         document.removeEventListener("pointerup", handleLayoutPointerUp);
         document.removeEventListener("pointercancel", handleLayoutPointerCancel);
@@ -859,6 +950,7 @@ export function generatePreviewSrcdoc(
         layoutState.latestY = event.clientY;
         layoutState.baseTranslate = getElementTranslate(target);
         layoutState.currentTranslate = layoutState.baseTranslate;
+        layoutState.bounds = buildLayoutBounds(target);
         layoutState.pointerId = event.pointerId;
         if (layoutDebugState.enabled) {
           sendLayoutDebug(buildLayoutDebugEntry("pointerdown", event, target));
@@ -897,16 +989,19 @@ export function generatePreviewSrcdoc(
           detachLayoutListeners();
           stopLayoutDrag(false);
           layoutState.commitPending = false;
+          layoutState.bounds = null;
           if (layoutState.commitTimeout) {
             window.clearTimeout(layoutState.commitTimeout);
             layoutState.commitTimeout = 0;
           }
           clearLayoutCache();
           setLayoutCursor(false);
+          updateInspectOverlay();
           return;
         }
         attachLayoutListeners();
         setLayoutCursor(false);
+        updateInspectOverlay();
       };
 
       const LAYER_SNAPSHOT_LIMIT = 700;
