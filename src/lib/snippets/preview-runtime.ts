@@ -49,6 +49,43 @@ export interface PreviewLayerSnapshot {
 	nodes: PreviewLayerNode[]
 }
 
+export interface PreviewLayoutCommit {
+	source: PreviewSourceLocation | null
+	translate: { x: number; y: number }
+}
+
+export interface PreviewLayoutDebugEvent {
+	seq: number
+	time: number
+	kind: "pointerdown" | "pointermove" | "pointerup" | "pointercancel" | "commit" | "debug-toggle"
+	pointerId: number | null
+	clientX: number | null
+	clientY: number | null
+	movementX: number | null
+	movementY: number | null
+	startX: number
+	startY: number
+	latestX: number
+	latestY: number
+	dx: number
+	dy: number
+	baseTranslate: { x: number; y: number }
+	currentTranslate: { x: number; y: number }
+	translate?: { x: number; y: number } | null
+	moved?: boolean
+	tag?: string | null
+	rect?: { x: number; y: number; width: number; height: number } | null
+	source?: PreviewSourceLocation | null
+	inspectScale?: number
+	inlineTranslate?: string | null
+	computedTranslate?: string | null
+	computedTransform?: string | null
+	parsedInline?: { x: number; y: number; partsCount: number } | null
+	parsedComputed?: { x: number; y: number; partsCount: number } | null
+	sourceKey?: string | null
+	note?: string
+}
+
 export type PreviewMessage =
 	| { type: "ready" }
 	| { type: "render-success" }
@@ -59,6 +96,8 @@ export type PreviewMessage =
 	| { type: "inspect-escape" }
 	| { type: "layers-snapshot"; snapshot: PreviewLayerSnapshot }
 	| { type: "layers-error"; error: string }
+	| { type: "layout-commit"; commit: PreviewLayoutCommit }
+	| { type: "layout-debug"; entry: PreviewLayoutDebugEvent }
 
 /**
  * Minimal CSS reset and container styles for the preview iframe.
@@ -218,9 +257,50 @@ export function generatePreviewSrcdoc(
       })();
 
       const elementSourceMap = new WeakMap();
+      const elementTranslateMap = new WeakMap();
+      const sourceTranslateMap = new Map();
+      const clearLayoutCache = () => {
+        sourceTranslateMap.clear();
+      };
+
+      const getSourceKey = (source) => {
+        if (!source || typeof source !== "object") return null;
+        const fileName = source.fileName ?? "";
+        const line = source.lineNumber ?? "";
+        const column = source.columnNumber ?? "";
+        return String(fileName) + ":" + String(line) + ":" + String(column);
+      };
+
+      const getStoredSourceTranslate = (source) => {
+        const key = getSourceKey(source);
+        if (!key) return null;
+        return sourceTranslateMap.get(key) ?? null;
+      };
+
+      const setStoredSourceTranslate = (source, translate) => {
+        const key = getSourceKey(source);
+        if (!key || !translate) return;
+        sourceTranslateMap.set(key, { x: translate.x ?? 0, y: translate.y ?? 0 });
+      };
 
       const unitlessStyles = new Set(${JSON.stringify(Array.from(UNITLESS_CSS_PROPERTIES))});
       const isUnitlessStyle = (key) => unitlessStyles.has(key);
+
+      const parseTranslateValue = (value) => {
+        if (!value || value === "none") return { x: 0, y: 0, partsCount: 0 };
+        const text = String(value);
+        const matches = text.match(/-?\\d*\\.?\\d+/g);
+        if (!matches || matches.length === 0) {
+          return { x: 0, y: 0, partsCount: 0 };
+        }
+        const x = Number.parseFloat(matches[0]);
+        const y = Number.parseFloat(matches[1] ?? "0");
+        return {
+          x: Number.isFinite(x) ? x : 0,
+          y: Number.isFinite(y) ? y : 0,
+          partsCount: matches.length,
+        };
+      };
 
       const normalizeChildren = (children) => {
         if (children === undefined) return [];
@@ -244,6 +324,10 @@ export function generatePreviewSrcdoc(
                 element.style[styleKey] = String(styleValue) + "px";
               } else {
                 element.style[styleKey] = String(styleValue);
+              }
+              if (styleKey === "translate") {
+                const parsedTranslate = parseTranslateValue(styleValue);
+                elementTranslateMap.set(element, { x: parsedTranslate.x, y: parsedTranslate.y });
               }
             }
             continue;
@@ -577,6 +661,7 @@ export function generatePreviewSrcdoc(
 
       const handleMouseMove = (event) => {
         if (!inspectState.enabled) return;
+        if (layoutState.dragging) return;
         const target = resolveInspectableTarget(event.target);
         if (target === inspectState.hovered) return;
         inspectState.hovered = target;
@@ -615,6 +700,359 @@ export function generatePreviewSrcdoc(
         updateInspectOverlay();
         sendInspectMessage("inspect-select", null);
         sendInspectMessage("inspect-escape", null);
+      };
+
+      const layoutState = {
+        enabled: false,
+        dragging: false,
+        active: null,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        latestX: 0,
+        latestY: 0,
+        baseTranslate: { x: 0, y: 0 },
+        currentTranslate: { x: 0, y: 0 },
+        raf: 0,
+        bodyUserSelect: "",
+        commitPending: false,
+        commitTimeout: 0,
+      };
+      const layoutDebugState = {
+        enabled: false,
+        seq: 0,
+        lastSentAt: 0,
+      };
+      let pendingCodeUpdate = null;
+      let pendingPropsRender = false;
+
+      const getElementTranslate = (element) => {
+        if (!element) return { x: 0, y: 0 };
+        const source = elementSourceMap.get(element) ?? null;
+        const inlineValue = element.style && element.style.translate ? element.style.translate : "";
+        const computedStyle = window.getComputedStyle(element);
+        const computedValue = computedStyle.translate || computedStyle.getPropertyValue("translate");
+        const inlineParsed = inlineValue ? parseTranslateValue(inlineValue) : null;
+        const computedParsed = computedValue ? parseTranslateValue(computedValue) : null;
+        const preferredParsed =
+          inlineParsed && inlineParsed.partsCount >= 2
+            ? inlineParsed
+            : computedParsed && computedParsed.partsCount >= 2
+              ? computedParsed
+              : null;
+        if (preferredParsed) {
+          elementTranslateMap.set(element, { x: preferredParsed.x, y: preferredParsed.y });
+          if (source) {
+            setStoredSourceTranslate(source, preferredParsed);
+          }
+          return { x: preferredParsed.x, y: preferredParsed.y };
+        }
+        const fallback = source ? getStoredSourceTranslate(source) : null;
+        if (fallback) {
+          return { x: fallback.x ?? 0, y: fallback.y ?? 0 };
+        }
+        const stored = elementTranslateMap.get(element);
+        if (stored) {
+          return { x: stored.x ?? 0, y: stored.y ?? 0 };
+        }
+        const parsed = parseTranslateValue(computedValue);
+        return { x: parsed.x, y: parsed.y };
+      };
+
+      const setLayoutCursor = (isDragging) => {
+        const container = document.getElementById("snippet-container");
+        if (!container) return;
+        if (!layoutState.enabled) {
+          container.style.cursor = "";
+          return;
+        }
+        container.style.cursor = isDragging ? "grabbing" : "grab";
+      };
+
+      const computeDragDelta = () => ({
+        dx: layoutState.latestX - layoutState.startX,
+        dy: layoutState.latestY - layoutState.startY,
+      });
+
+      const buildLayoutDebugEntry = (kind, event, target, extra) => {
+        const { dx, dy } = computeDragDelta();
+        const rect = target && typeof target.getBoundingClientRect === "function"
+          ? target.getBoundingClientRect()
+          : null;
+        const inlineTranslate = target?.style?.translate ?? null;
+        const computedStyle = target ? window.getComputedStyle(target) : null;
+        const computedTranslate = computedStyle
+          ? computedStyle.translate || computedStyle.getPropertyValue("translate")
+          : null;
+        const computedTransform = computedStyle ? computedStyle.transform : null;
+        const parsedInline = inlineTranslate ? parseTranslateValue(inlineTranslate) : null;
+        const parsedComputed = computedTranslate ? parseTranslateValue(computedTranslate) : null;
+        const source = target ? (elementSourceMap.get(target) ?? null) : null;
+        return {
+          seq: ++layoutDebugState.seq,
+          time: Date.now(),
+          kind,
+          pointerId: event?.pointerId ?? layoutState.pointerId ?? null,
+          clientX: typeof event?.clientX === "number" ? event.clientX : null,
+          clientY: typeof event?.clientY === "number" ? event.clientY : null,
+          movementX: typeof event?.movementX === "number" ? event.movementX : null,
+          movementY: typeof event?.movementY === "number" ? event.movementY : null,
+          startX: layoutState.startX,
+          startY: layoutState.startY,
+          latestX: layoutState.latestX,
+          latestY: layoutState.latestY,
+          dx,
+          dy,
+          baseTranslate: layoutState.baseTranslate,
+          currentTranslate: layoutState.currentTranslate,
+          tag: target?.tagName ? String(target.tagName).toLowerCase() : null,
+          rect: rect
+            ? {
+                x: Math.round(rect.left),
+                y: Math.round(rect.top),
+                width: Math.round(rect.width),
+                height: Math.round(rect.height),
+              }
+            : null,
+          source,
+          inspectScale,
+          inlineTranslate,
+          computedTranslate,
+          computedTransform,
+          parsedInline,
+          parsedComputed,
+          sourceKey: source ? getSourceKey(source) : null,
+          ...extra,
+        };
+      };
+
+      const sendLayoutDebug = (entry) => {
+        if (!layoutDebugState.enabled) return;
+        parent.postMessage({ type: "layout-debug", entry }, "*");
+      };
+
+      const shouldSendMoveDebug = (rawDx, rawDy) => {
+        const now = Date.now();
+        const largeJump = Math.abs(rawDx) > 48 || Math.abs(rawDy) > 48;
+        if (largeJump) {
+          layoutDebugState.lastSentAt = now;
+          return true;
+        }
+        if (now - layoutDebugState.lastSentAt > 140) {
+          layoutDebugState.lastSentAt = now;
+          return true;
+        }
+        return false;
+      };
+
+      const applyLayoutTranslate = () => {
+        if (!layoutState.dragging || !layoutState.active) return;
+        const { dx, dy } = computeDragDelta();
+        const nextTranslate = {
+          x: layoutState.baseTranslate.x + dx,
+          y: layoutState.baseTranslate.y + dy,
+        };
+        layoutState.currentTranslate = nextTranslate;
+        layoutState.active.style.translate = nextTranslate.x + "px " + nextTranslate.y + "px";
+        elementTranslateMap.set(layoutState.active, nextTranslate);
+        updateInspectOverlay();
+      };
+
+      const scheduleLayoutTranslate = () => {
+        if (layoutState.raf) return;
+        layoutState.raf = window.requestAnimationFrame(() => {
+          layoutState.raf = 0;
+          applyLayoutTranslate();
+        });
+      };
+
+      const stopLayoutDrag = (commit) => {
+        if (!layoutState.dragging) return;
+        layoutState.dragging = false;
+        const activeTarget = layoutState.active;
+        const activePointerId = layoutState.pointerId;
+        if (layoutState.raf) {
+          window.cancelAnimationFrame(layoutState.raf);
+          layoutState.raf = 0;
+        }
+        const { dx, dy } = computeDragDelta();
+        const moved = Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5;
+        const target = layoutState.active;
+        const translate = layoutState.currentTranslate;
+        layoutState.active = null;
+        layoutState.pointerId = null;
+        document.removeEventListener("pointermove", handleLayoutPointerMove);
+        document.removeEventListener("pointerup", handleLayoutPointerUp);
+        document.removeEventListener("pointercancel", handleLayoutPointerCancel);
+        document.body.style.userSelect = layoutState.bodyUserSelect;
+        setLayoutCursor(false);
+        updateInspectOverlay();
+        if (activeTarget && activePointerId !== null && typeof activeTarget.releasePointerCapture === "function") {
+          try {
+            activeTarget.releasePointerCapture(activePointerId);
+          } catch {
+            // Ignore release failures for cross-browser safety.
+          }
+        }
+        const didCommit = Boolean(commit && moved && target);
+        if (didCommit) {
+          const source = elementSourceMap.get(target) ?? null;
+          if (source) {
+            setStoredSourceTranslate(source, translate);
+          }
+          layoutState.commitPending = true;
+          if (layoutState.commitTimeout) {
+            window.clearTimeout(layoutState.commitTimeout);
+          }
+          layoutState.commitTimeout = window.setTimeout(() => {
+            layoutState.commitPending = false;
+            layoutState.commitTimeout = 0;
+            if (pendingPropsRender) {
+              pendingPropsRender = false;
+              renderWithProps(latestPropsPayload);
+            }
+          }, 1200);
+          parent.postMessage(
+            {
+              type: "layout-commit",
+              commit: {
+                source,
+                translate,
+              },
+            },
+            "*",
+          );
+        }
+        if (didCommit && layoutDebugState.enabled) {
+          sendLayoutDebug(
+            buildLayoutDebugEntry("commit", null, target, {
+              translate,
+              moved,
+            }),
+          );
+        }
+        if (didCommit) {
+          pendingCodeUpdate = null;
+          return;
+        }
+        if (pendingCodeUpdate) {
+          const next = pendingCodeUpdate;
+          pendingCodeUpdate = null;
+          pendingPropsRender = false;
+          resetInspectState();
+          applyCompiledCode(next.code);
+          renderWithProps(next.propsPayload);
+          return;
+        }
+        if (pendingPropsRender) {
+          pendingPropsRender = false;
+          renderWithProps(latestPropsPayload);
+        }
+      };
+
+      const handleLayoutPointerMove = (event) => {
+        if (!layoutState.dragging) return;
+        if (layoutState.pointerId !== null && event.pointerId !== layoutState.pointerId) return;
+        const rawDx = event.clientX - layoutState.latestX;
+        const rawDy = event.clientY - layoutState.latestY;
+        layoutState.latestX = event.clientX;
+        layoutState.latestY = event.clientY;
+        if (layoutDebugState.enabled && shouldSendMoveDebug(rawDx, rawDy)) {
+          sendLayoutDebug(
+            buildLayoutDebugEntry("pointermove", event, layoutState.active, {
+              note: Math.abs(rawDx) > 48 || Math.abs(rawDy) > 48 ? "jump-delta" : undefined,
+            }),
+          );
+        }
+        scheduleLayoutTranslate();
+      };
+
+      const handleLayoutPointerUp = (event) => {
+        if (layoutState.pointerId !== null && event.pointerId !== layoutState.pointerId) return;
+        if (layoutDebugState.enabled) {
+          sendLayoutDebug(buildLayoutDebugEntry("pointerup", event, layoutState.active));
+        }
+        stopLayoutDrag(true);
+      };
+
+      const handleLayoutPointerCancel = (event) => {
+        if (layoutState.pointerId !== null && event.pointerId !== layoutState.pointerId) return;
+        if (layoutDebugState.enabled) {
+          sendLayoutDebug(buildLayoutDebugEntry("pointercancel", event, layoutState.active));
+        }
+        stopLayoutDrag(false);
+      };
+
+      const handleLayoutPointerDown = (event) => {
+        if (!layoutState.enabled) return;
+        if (event.button !== 0) return;
+        if (layoutState.dragging) {
+          stopLayoutDrag(false);
+        }
+        const target = resolveInspectableTarget(event.target);
+        if (!target) return;
+        event.preventDefault();
+        event.stopPropagation();
+        inspectState.selected = target;
+        inspectState.hovered = null;
+        updateInspectOverlay();
+        sendInspectMessage("inspect-select", target);
+        layoutState.active = target;
+        layoutState.dragging = true;
+        layoutState.startX = event.clientX;
+        layoutState.startY = event.clientY;
+        layoutState.latestX = event.clientX;
+        layoutState.latestY = event.clientY;
+        layoutState.baseTranslate = getElementTranslate(target);
+        layoutState.currentTranslate = layoutState.baseTranslate;
+        layoutState.pointerId = event.pointerId;
+        if (layoutDebugState.enabled) {
+          sendLayoutDebug(buildLayoutDebugEntry("pointerdown", event, target));
+        }
+        layoutState.bodyUserSelect = document.body.style.userSelect;
+        document.body.style.userSelect = "none";
+        setLayoutCursor(true);
+        if (typeof target.setPointerCapture === "function") {
+          try {
+            target.setPointerCapture(event.pointerId);
+          } catch {
+            // Ignore capture failures for cross-browser safety.
+          }
+        }
+        document.addEventListener("pointermove", handleLayoutPointerMove);
+        document.addEventListener("pointerup", handleLayoutPointerUp);
+        document.addEventListener("pointercancel", handleLayoutPointerCancel);
+      };
+
+      let layoutListenersAttached = false;
+      const attachLayoutListeners = () => {
+        if (layoutListenersAttached) return;
+        layoutListenersAttached = true;
+        document.addEventListener("pointerdown", handleLayoutPointerDown);
+      };
+
+      const detachLayoutListeners = () => {
+        if (!layoutListenersAttached) return;
+        layoutListenersAttached = false;
+        document.removeEventListener("pointerdown", handleLayoutPointerDown);
+      };
+
+      const setLayoutEnabled = (enabled) => {
+        layoutState.enabled = Boolean(enabled);
+        if (!layoutState.enabled) {
+          detachLayoutListeners();
+          stopLayoutDrag(false);
+          layoutState.commitPending = false;
+          if (layoutState.commitTimeout) {
+            window.clearTimeout(layoutState.commitTimeout);
+            layoutState.commitTimeout = 0;
+          }
+          clearLayoutCache();
+          setLayoutCursor(false);
+          return;
+        }
+        attachLayoutListeners();
+        setLayoutCursor(false);
       };
 
       const LAYER_SNAPSHOT_LIMIT = 700;
@@ -783,6 +1221,7 @@ export function generatePreviewSrcdoc(
 
       const applyCompiledCode = (code) => {
         resetSnippetExports();
+        clearLayoutCache();
         if (typeof code !== "string" || !code.trim()) {
           window.__SNIPPET_COMPONENT_ERROR__ = "No compiled code provided.";
           return;
@@ -862,6 +1301,21 @@ export function generatePreviewSrcdoc(
           setInspectScale(typeof data.scale === "number" ? data.scale : 1);
           return;
         }
+        if (data.type === "layout-toggle") {
+          setLayoutEnabled(Boolean(data.enabled));
+          return;
+        }
+        if (data.type === "layout-debug-toggle") {
+          layoutDebugState.enabled = Boolean(data.enabled);
+          layoutDebugState.seq = 0;
+          layoutDebugState.lastSentAt = 0;
+          if (layoutDebugState.enabled) {
+            sendLayoutDebug(buildLayoutDebugEntry("debug-toggle", null, layoutState.active, {
+              note: "enabled",
+            }));
+          }
+          return;
+        }
         if (data.type === "layers-toggle") {
           setLayersEnabled(Boolean(data.enabled));
           return;
@@ -874,9 +1328,20 @@ export function generatePreviewSrcdoc(
           if (typeof data.propsJson === "string" || typeof data.props === "string" || typeof data.props === "object") {
             latestPropsPayload = data.propsJson ?? data.props;
           }
+          if (layoutState.commitTimeout) {
+            window.clearTimeout(layoutState.commitTimeout);
+            layoutState.commitTimeout = 0;
+          }
+          layoutState.commitPending = false;
+          if (layoutState.dragging) {
+            pendingCodeUpdate = { code: data.code, propsPayload: latestPropsPayload };
+            return;
+          }
           resetInspectState();
           applyCompiledCode(data.code);
           renderWithProps(latestPropsPayload);
+          pendingPropsRender = false;
+          pendingCodeUpdate = null;
           return;
         }
         if (data.type === "tailwind-update") {
@@ -885,6 +1350,14 @@ export function generatePreviewSrcdoc(
         }
         if (data.type === "props-update") {
           latestPropsPayload = data.propsJson ?? data.props;
+          if (layoutState.dragging) {
+            pendingPropsRender = true;
+            return;
+          }
+          if (layoutState.commitPending) {
+            pendingPropsRender = true;
+            return;
+          }
           renderWithProps(latestPropsPayload);
         }
       });
@@ -894,6 +1367,16 @@ export function generatePreviewSrcdoc(
           window.cancelAnimationFrame(layersState.raf);
           layersState.raf = 0;
         }
+        if (layoutState.raf) {
+          window.cancelAnimationFrame(layoutState.raf);
+          layoutState.raf = 0;
+        }
+        if (layoutState.commitTimeout) {
+          window.clearTimeout(layoutState.commitTimeout);
+          layoutState.commitTimeout = 0;
+        }
+        layoutState.commitPending = false;
+        detachLayoutListeners();
       });
 
       // Initial render with props from parent
