@@ -19,6 +19,7 @@ import { z } from "zod"
 import { SnippetPreview } from "@/components/asset-library/snippet-preview"
 import { ClientOnly } from "@/components/ui/client-only"
 import { Form } from "@/components/ui/form"
+import { applySnippetLayoutInEngine } from "@/lib/engine/client"
 import { SCREEN_GUARD_EMPTY, useScreenGuard } from "@/lib/screen-guard"
 import {
 	DEFAULT_SNIPPET_EXPORT,
@@ -37,6 +38,7 @@ import { SNIPPET_EXAMPLES } from "@/lib/snippets/examples"
 import {
 	DEFAULT_PREVIEW_DIMENSIONS,
 	type PreviewLayerSnapshot,
+	type PreviewLayoutCommit,
 	type PreviewSourceLocation,
 } from "@/lib/snippets/preview-runtime"
 import { SNIPPET_TEMPLATES, type SnippetTemplateId } from "@/lib/snippets/templates"
@@ -136,10 +138,13 @@ function NewSnippetPage() {
 	const inspectTextCommitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 	const inspectTextPendingValueRef = useRef<string | null>(null)
 	const inspectContextMenuRef = useRef<HTMLDivElement>(null)
+	const layoutCommitQueueRef = useRef<Promise<void>>(Promise.resolve())
 	const [error, setError] = useState<string | null>(null)
 	const [isSubmitting, setIsSubmitting] = useState(false)
 	const [useComponentDefaults, setUseComponentDefaults] = useState(false)
 	const [inspectTextEdit, setInspectTextEdit] = useState<InspectTextEditState | null>(null)
+	const [layoutMode, setLayoutMode] = useState(false)
+	const [layoutDebugEnabled, setLayoutDebugEnabled] = useState(false)
 	const [layers3dOpen, setLayers3dOpen] = useState(false)
 	const [layersSnapshot, setLayersSnapshot] = useState<PreviewLayerSnapshot | null>(null)
 	const [layersError, setLayersError] = useState<string | null>(null)
@@ -581,6 +586,12 @@ function NewSnippetPage() {
 	}, [examplesOpen])
 
 	useEffect(() => {
+		if (isExamplePreviewActive) {
+			setLayoutMode(false)
+		}
+	}, [isExamplePreviewActive])
+
+	useEffect(() => {
 		if (!filteredExamples.length) {
 			setActiveExampleId("")
 			return
@@ -710,6 +721,7 @@ function NewSnippetPage() {
 		onPreviewInspectHover,
 		onPreviewInspectSelect,
 		onPreviewInspectContext,
+		resolvePreviewSource,
 	} = useSnippetInspect({
 		mainSource: parsedFiles.mainSource,
 		mainEditorSource,
@@ -719,6 +731,7 @@ function NewSnippetPage() {
 		onOpenFileForInspect: openFileForInspect,
 		inspectIndexByFileId: analysis?.inspectIndexByFileId,
 		lineMapSegments: analysis?.lineMapSegments,
+		forceEnabled: layoutMode,
 	})
 
 	const handleLayersSnapshot = useCallback((snapshot: PreviewLayerSnapshot) => {
@@ -795,6 +808,42 @@ function NewSnippetPage() {
 		},
 		[form, markHistoryLabel],
 	)
+
+	const applyLayoutSourceForFile = useCallback(
+		(fileId: SnippetEditorFileId, nextFileSource: string, label: string) => {
+			const currentSource = form.getValues("source") ?? ""
+			const parsed = parseSnippetFiles(currentSource)
+			const sanitizedValue = stripSnippetFileDirectives(nextFileSource)
+
+			if (fileId === "source") {
+				const normalizedMain = syncImportBlock(sanitizedValue, Object.keys(parsed.files))
+				const nextSource = serializeSnippetFiles(normalizedMain, parsed.files)
+				if (nextSource !== currentSource) {
+					form.setValue("source", nextSource, { shouldValidate: true, shouldDirty: true })
+					commitHistoryNow(label, nextSource)
+				}
+				return
+			}
+
+			if (!isComponentFileId(fileId)) return
+			const fileName = getComponentFileName(fileId)
+			if (!fileName) return
+			const nextFiles = { ...parsed.files, [fileName]: sanitizedValue }
+			const nextMain = syncImportBlock(parsed.mainSource, Object.keys(nextFiles))
+			const nextSource = serializeSnippetFiles(nextMain, nextFiles)
+			if (nextSource !== currentSource) {
+				form.setValue("source", nextSource, { shouldValidate: true, shouldDirty: true })
+				commitHistoryNow(label, nextSource)
+			}
+		},
+		[commitHistoryNow, form],
+	)
+
+	const enqueueLayoutCommit = useCallback((task: () => Promise<void>) => {
+		const next = layoutCommitQueueRef.current.catch(() => {}).then(task)
+		layoutCommitQueueRef.current = next
+		return next
+	}, [])
 
 	const flushInspectTextEdit = useCallback(
 		(nextValue?: string | null) => {
@@ -1010,6 +1059,57 @@ function NewSnippetPage() {
 			})
 		},
 		[flushInspectTextEdit, onPreviewInspectContext],
+	)
+
+	const handleLayoutCommit = useCallback(
+		(commit: PreviewLayoutCommit) => {
+			if (!layoutMode || isExamplePreviewActive) return
+			if (!commit?.source) return
+			if (!Number.isFinite(commit.translate?.x) || !Number.isFinite(commit.translate?.y)) {
+				return
+			}
+			const target = resolvePreviewSource(commit.source)
+			if (!target) {
+				toast.error("Unable to map the selected element back to the source.")
+				return
+			}
+			const translateX = commit.translate.x
+			const translateY = commit.translate.y
+
+			enqueueLayoutCommit(async () => {
+				const fileSource = getSourceForFile(target.fileId)
+				if (!fileSource.trim()) {
+					toast.error("Selected element source is empty.")
+					return
+				}
+				try {
+					const result = await applySnippetLayoutInEngine({
+						source: fileSource,
+						line: target.line,
+						column: target.column,
+						translateX,
+						translateY,
+					})
+					if (!result.changed) {
+						if (result.reason) {
+							toast.error(result.reason)
+						}
+						return
+					}
+					applyLayoutSourceForFile(target.fileId, result.source, "Move element")
+				} catch (err) {
+					toast.error(err instanceof Error ? err.message : "Failed to update layout.")
+				}
+			})
+		},
+		[
+			applyLayoutSourceForFile,
+			enqueueLayoutCommit,
+			getSourceForFile,
+			isExamplePreviewActive,
+			layoutMode,
+			resolvePreviewSource,
+		],
 	)
 
 	useEffect(() => {
@@ -1503,6 +1603,26 @@ export const ${name} = ({ title = "New snippet" }) => {
 		? examplePreviewDimensions
 		: snippetPreviewDimensions
 
+	const handleToggleLayout = useCallback(() => {
+		setLayoutMode((prev) => {
+			const next = !prev
+			if (!next) {
+				setLayoutDebugEnabled(false)
+			}
+			return next
+		})
+	}, [])
+
+	const handleToggleLayoutDebug = useCallback(() => {
+		setLayoutDebugEnabled((prev) => !prev)
+	}, [])
+
+	useEffect(() => {
+		if (!layoutMode && layoutDebugEnabled) {
+			setLayoutDebugEnabled(false)
+		}
+	}, [layoutDebugEnabled, layoutMode])
+
 	useEffect(() => {
 		if (!layers3dOpen) return
 		if (!previewCompiledCode) {
@@ -1519,6 +1639,10 @@ export const ${name} = ({ title = "New snippet" }) => {
 			onToggleDefaults={() => setUseComponentDefaults((prev) => !prev)}
 			inspectEnabled={inspectMode}
 			onToggleInspect={() => setInspectMode((prev) => !prev)}
+			layoutEnabled={layoutMode}
+			onToggleLayout={handleToggleLayout}
+			layoutDebugEnabled={layoutDebugEnabled}
+			onToggleLayoutDebug={handleToggleLayoutDebug}
 			layers3dEnabled={layers3dOpen}
 			onToggleLayers3d={() => setLayers3dOpen((prev) => !prev)}
 		/>
@@ -1709,6 +1833,9 @@ export const ${name} = ({ title = "New snippet" }) => {
 										onInspectSelect={handlePreviewInspectSelect}
 										onInspectContext={handleInspectContext}
 										onInspectEscape={handleInspectEscape}
+										layoutEnabled={layoutMode && !isExamplePreviewing}
+										layoutDebugEnabled={layoutDebugEnabled && layoutMode && !isExamplePreviewing}
+										onLayoutCommit={handleLayoutCommit}
 										layersEnabled={layers3dOpen}
 										layersRequestToken={layersRequestToken}
 										onLayersSnapshot={handleLayersSnapshot}
