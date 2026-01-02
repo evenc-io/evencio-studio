@@ -93,6 +93,8 @@ function NewSnippetPage() {
 	const [useComponentDefaults, setUseComponentDefaults] = useState(false)
 	const [layoutMode, setLayoutMode] = useState(false)
 	const [layoutDebugEnabled, setLayoutDebugEnabled] = useState(false)
+	const [layoutSnapEnabled, setLayoutSnapEnabled] = useState(true)
+	const [layoutSnapGrid, setLayoutSnapGrid] = useState(8)
 	const [layers3dOpen, setLayers3dOpen] = useState(false)
 	const [layersSnapshot, setLayersSnapshot] = useState<PreviewLayerSnapshot | null>(null)
 	const [layersError, setLayersError] = useState<string | null>(null)
@@ -831,6 +833,10 @@ function NewSnippetPage() {
 								analysisError={analysisError}
 								includeTailwind
 								includeInspect={includeInspect}
+								layoutSnapEnabled={layoutSnapEnabled}
+								onToggleLayoutSnap={() => setLayoutSnapEnabled((prev) => !prev)}
+								layoutSnapGrid={layoutSnapGrid}
+								onChangeLayoutSnapGrid={setLayoutSnapGrid}
 							/>
 
 							<SnippetExamplesPanel
@@ -915,6 +921,8 @@ function NewSnippetPage() {
 										onInspectEscape={handleInspectEscape}
 										layoutEnabled={layoutMode && !isExamplePreviewing}
 										layoutDebugEnabled={layoutDebugEnabled && layoutMode && !isExamplePreviewing}
+										layoutSnapEnabled={layoutSnapEnabled}
+										layoutSnapGrid={layoutSnapGrid}
 										onLayoutCommit={handleLayoutCommit}
 										layersEnabled={layers3dOpen}
 										layersRequestToken={layersRequestToken}

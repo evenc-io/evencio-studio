@@ -63,6 +63,10 @@ export interface SnippetPreviewProps {
 	layoutEnabled?: boolean
 	/** Enable layout debug logging in the preview iframe */
 	layoutDebugEnabled?: boolean
+	/** Enable grid snapping during layout drag (8px grid + sibling edges/centers) */
+	layoutSnapEnabled?: boolean
+	/** Grid step size (in pixels) for layout snapping */
+	layoutSnapGrid?: number
 	/** Called when the preview commits a layout change */
 	onLayoutCommit?: (commit: PreviewLayoutCommit) => void
 }
@@ -91,6 +95,8 @@ export function SnippetPreview({
 	onLayersError,
 	layoutEnabled = false,
 	layoutDebugEnabled = false,
+	layoutSnapEnabled = true,
+	layoutSnapGrid = 8,
 	onLayoutCommit,
 }: SnippetPreviewProps) {
 	const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -104,6 +110,8 @@ export function SnippetPreview({
 	const lastTailwindCssRef = useRef<string | null>(null)
 	const lastPropsJsonRef = useRef<string | null>(null)
 	const layoutDebugEnabledRef = useRef(Boolean(layoutDebugEnabled))
+	const layoutSnapEnabledRef = useRef(Boolean(layoutSnapEnabled))
+	const layoutSnapGridRef = useRef(layoutSnapGrid)
 	const onInspectHoverRef = useRef(onInspectHover)
 	const onInspectSelectRef = useRef(onInspectSelect)
 	const onInspectContextRef = useRef(onInspectContext)
@@ -115,6 +123,7 @@ export function SnippetPreview({
 	const layersEnabledRef = useRef(Boolean(layersEnabled))
 	const onLayoutCommitRef = useRef(onLayoutCommit)
 	const layoutEnabledRef = useRef(Boolean(layoutEnabled))
+	const scaleRef = useRef(1)
 	const [layoutDebugEntries, setLayoutDebugEntries] = useState<PreviewLayoutDebugEvent[]>([])
 
 	useEffect(() => {
@@ -130,6 +139,8 @@ export function SnippetPreview({
 		onLayoutCommitRef.current = onLayoutCommit
 		layoutEnabledRef.current = Boolean(layoutEnabled)
 		layoutDebugEnabledRef.current = Boolean(layoutDebugEnabled)
+		layoutSnapEnabledRef.current = Boolean(layoutSnapEnabled)
+		layoutSnapGridRef.current = layoutSnapGrid
 	}, [
 		onInspectHover,
 		onInspectSelect,
@@ -143,6 +154,8 @@ export function SnippetPreview({
 		onLayoutCommit,
 		layoutEnabled,
 		layoutDebugEnabled,
+		layoutSnapEnabled,
+		layoutSnapGrid,
 	])
 
 	useEffect(() => {
@@ -167,6 +180,12 @@ export function SnippetPreview({
 			switch (data.type) {
 				case "ready":
 					iframeReadyRef.current = true
+					// Send scale immediately so inspect overlay sizing is correct,
+					// especially for high-res templates with small scale factors.
+					iframeRef.current?.contentWindow?.postMessage(
+						{ type: "inspect-scale", scale: scaleRef.current },
+						"*",
+					)
 					if (layersEnabledRef.current) {
 						iframeRef.current?.contentWindow?.postMessage(
 							{ type: "layers-toggle", enabled: true },
@@ -182,6 +201,14 @@ export function SnippetPreview({
 					}
 					iframeRef.current?.contentWindow?.postMessage(
 						{ type: "layout-debug-toggle", enabled: layoutDebugEnabledRef.current },
+						"*",
+					)
+					iframeRef.current?.contentWindow?.postMessage(
+						{ type: "layout-snap-toggle", enabled: layoutSnapEnabledRef.current },
+						"*",
+					)
+					iframeRef.current?.contentWindow?.postMessage(
+						{ type: "layout-snap-grid", grid: layoutSnapGridRef.current },
 						"*",
 					)
 					break
@@ -369,6 +396,7 @@ export function SnippetPreview({
 			{ type: "layout-toggle", enabled: Boolean(layoutEnabled) },
 			"*",
 		)
+		iframe.contentWindow.postMessage({ type: "inspect-scale", scale: scaleRef.current }, "*")
 	}, [layoutEnabled])
 
 	useEffect(() => {
@@ -379,6 +407,21 @@ export function SnippetPreview({
 			"*",
 		)
 	}, [layoutDebugEnabled])
+
+	useEffect(() => {
+		const iframe = iframeRef.current
+		if (!iframe?.contentWindow || !iframeReadyRef.current) return
+		iframe.contentWindow.postMessage(
+			{ type: "layout-snap-toggle", enabled: Boolean(layoutSnapEnabled) },
+			"*",
+		)
+	}, [layoutSnapEnabled])
+
+	useEffect(() => {
+		const iframe = iframeRef.current
+		if (!iframe?.contentWindow || !iframeReadyRef.current) return
+		iframe.contentWindow.postMessage({ type: "layout-snap-grid", grid: layoutSnapGrid }, "*")
+	}, [layoutSnapGrid])
 
 	useEffect(() => {
 		if (!layersEnabledRef.current) return
@@ -420,14 +463,20 @@ export function SnippetPreview({
 		return Math.min(1, Math.max(0.01, nextScale))
 	}, [containerSize.height, containerSize.width, dimensions.height, dimensions.width])
 
+	// Keep scaleRef in sync for use in message handler
+	useEffect(() => {
+		scaleRef.current = scale
+	}, [scale])
+
 	const scaledWidth = Math.max(0, Math.round(dimensions.width * scale))
 	const scaledHeight = Math.max(0, Math.round(dimensions.height * scale))
+	const scalePercent = Math.round(scale * 100)
 
 	useEffect(() => {
 		const iframe = iframeRef.current
-		if (!iframe || status !== "success") return
-		iframe.contentWindow?.postMessage({ type: "inspect-scale", scale }, "*")
-	}, [scale, status])
+		if (!iframe?.contentWindow || !iframeReadyRef.current) return
+		iframe.contentWindow.postMessage({ type: "inspect-scale", scale }, "*")
+	}, [scale])
 
 	const layoutDebugText = useMemo(
 		() => layoutDebugEntries.map((entry) => JSON.stringify(entry)).join("\n"),
@@ -453,6 +502,7 @@ export function SnippetPreview({
 					<span className="text-xs text-neutral-400">
 						{dimensions.width} x {dimensions.height}
 					</span>
+					<span className="text-xs text-neutral-400">Scale {scalePercent}%</span>
 				</div>
 			</div>
 

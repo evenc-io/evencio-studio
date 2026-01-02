@@ -253,6 +253,7 @@ export function generatePreviewSrcdoc(
 
       const INSPECT_HOVER = "#FF0066";
       const INSPECT_SELECTED = "#0066FF";
+      const INSPECT_PARENT = "#00B37E";
       const INSPECT_LABEL_BG = "#FFFFFF";
       const INSPECT_LABEL_TEXT = "#1E1E1E";
       const resolveInspectableTarget = (target) => {
@@ -345,7 +346,15 @@ export function generatePreviewSrcdoc(
         const hoverLabel = createLabel(INSPECT_HOVER);
         const selectedBox = createBox(INSPECT_SELECTED);
         const selectedLabel = createLabel(INSPECT_SELECTED);
+        const parentBox = createBox(INSPECT_PARENT);
+        const parentLabel = createLabel(INSPECT_PARENT);
 
+        parentBox.style.borderStyle = "dashed";
+        parentBox.style.borderWidth = "1px";
+        parentBox.style.opacity = "0.9";
+
+        overlay.appendChild(parentBox);
+        overlay.appendChild(parentLabel.container);
         overlay.appendChild(selectedBox);
         overlay.appendChild(selectedLabel.container);
         overlay.appendChild(hoverBox);
@@ -436,7 +445,8 @@ export function generatePreviewSrcdoc(
           setEnabled(enabled) {
             overlay.style.display = enabled ? "block" : "none";
           },
-          update({ hovered, selected }) {
+          update({ hovered, selected, parent }) {
+            updateBox(parentBox, parentLabel, parent, "Parent");
             updateBox(selectedBox, selectedLabel, selected, "Selected");
             const hoverTarget = hovered && hovered !== selected ? hovered : null;
             updateBox(hoverBox, hoverLabel, hoverTarget, "");
@@ -477,15 +487,28 @@ export function generatePreviewSrcdoc(
         parent.postMessage({ type, source: source ?? null, ...(payload ?? {}) }, "*");
       };
 
+      const resolveLayoutParentTarget = () => {
+        if (!layoutState.enabled) return null;
+        const target = layoutState.active ?? inspectState.selected;
+        if (!target) return null;
+        const parent = target.parentElement;
+        if (!parent) return null;
+        const container = document.getElementById("snippet-container");
+        if (container && !container.contains(parent)) return null;
+        return parent;
+      };
+
       const updateInspectOverlay = () => {
-        if (!inspectState.enabled) {
+        const showOverlay = inspectState.enabled || layoutState.enabled;
+        if (!showOverlay) {
           inspectOverlay.setEnabled(false);
           return;
         }
         inspectOverlay.setEnabled(true);
         inspectOverlay.update({
-          hovered: inspectState.hovered,
-          selected: inspectState.selected,
+          hovered: inspectState.enabled ? inspectState.hovered : null,
+          selected: inspectState.enabled ? inspectState.selected : null,
+          parent: resolveLayoutParentTarget(),
         });
       };
 
@@ -567,11 +590,277 @@ export function generatePreviewSrcdoc(
         latestY: 0,
         baseTranslate: { x: 0, y: 0 },
         currentTranslate: { x: 0, y: 0 },
+        bounds: null,
         raf: 0,
         bodyUserSelect: "",
         commitPending: false,
         commitTimeout: 0,
       };
+
+      const snapState = {
+        enabled: true,
+        baseGridSize: 8,      // Base grid in visual pixels
+        baseThreshold: 6,     // Base threshold in visual pixels
+        altHeld: false,
+        scaleForSnap: 1,
+        siblingEdges: { xEdges: [], yEdges: [], xCenters: [], yCenters: [] },
+      };
+
+      const clampGridSize = (value) => {
+        if (!Number.isFinite(value)) return snapState.baseGridSize;
+        return Math.min(64, Math.max(2, Math.round(value)));
+      };
+
+      const snapGuides = {
+        container: null,
+        vLine: null,
+        hLine: null,
+        ensure() {
+          if (this.container) return;
+          const container = document.createElement("div");
+          container.style.position = "fixed";
+          container.style.inset = "0";
+          container.style.pointerEvents = "none";
+          container.style.zIndex = "99999";
+          const vLine = document.createElement("div");
+          vLine.style.position = "absolute";
+          vLine.style.top = "0";
+          vLine.style.bottom = "0";
+          vLine.style.width = "1px";
+          vLine.style.background = "#00ff00";
+          vLine.style.display = "none";
+          const hLine = document.createElement("div");
+          hLine.style.position = "absolute";
+          hLine.style.left = "0";
+          hLine.style.right = "0";
+          hLine.style.height = "1px";
+          hLine.style.background = "#00ff00";
+          hLine.style.display = "none";
+          container.appendChild(vLine);
+          container.appendChild(hLine);
+          document.body.appendChild(container);
+          this.container = container;
+          this.vLine = vLine;
+          this.hLine = hLine;
+        },
+        showVertical(x, thickness = 1) {
+          this.ensure();
+          if (!this.vLine) return;
+          const width = Math.max(1, Math.round(thickness));
+          this.vLine.style.display = "block";
+          this.vLine.style.width = String(width) + "px";
+          this.vLine.style.left = String(Math.round(x - width / 2)) + "px";
+        },
+        showHorizontal(y, thickness = 1) {
+          this.ensure();
+          if (!this.hLine) return;
+          const height = Math.max(1, Math.round(thickness));
+          this.hLine.style.display = "block";
+          this.hLine.style.height = String(height) + "px";
+          this.hLine.style.top = String(Math.round(y - height / 2)) + "px";
+        },
+        hide() {
+          if (this.vLine) this.vLine.style.display = "none";
+          if (this.hLine) this.hLine.style.display = "none";
+        },
+      };
+
+      const collectSiblingEdges = (element, bounds) => {
+        const xEdges = [];
+        const yEdges = [];
+        const xCenters = [];
+        const yCenters = [];
+        if (!element || !bounds) return { xEdges, yEdges, xCenters, yCenters };
+
+        if (!bounds.containerRect) {
+          return { xEdges, yEdges, xCenters, yCenters };
+        }
+
+        const containerRect = bounds.containerRect;
+        const parent = element.parentElement;
+        if (!parent) return { xEdges, yEdges, xCenters, yCenters };
+
+        const addRectEdges = (rect) => {
+          if (!rect || rect.width <= 0 || rect.height <= 0) return;
+          const left = rect.left - containerRect.left;
+          const right = rect.right - containerRect.left;
+          const centerX = (left + right) / 2;
+          const top = rect.top - containerRect.top;
+          const bottom = rect.bottom - containerRect.top;
+          const centerY = (top + bottom) / 2;
+          xEdges.push(left, right);
+          yEdges.push(top, bottom);
+          xCenters.push(centerX);
+          yCenters.push(centerY);
+        };
+
+        const collectFromNode = (node) => {
+          if (!node || node === element) return;
+          if (!(node instanceof Element)) return;
+          if (node.contains(element)) return;
+          const rect = node.getBoundingClientRect();
+          if (rect.width > 0 && rect.height > 0) {
+            addRectEdges(rect);
+            return;
+          }
+          const children = node.children;
+          for (let i = 0; i < children.length; i++) {
+            collectFromNode(children[i]);
+          }
+        };
+
+        const siblings = parent.children;
+        for (let i = 0; i < siblings.length; i++) {
+          collectFromNode(siblings[i]);
+        }
+
+        if (bounds.parentRect && bounds.parentRect.width > 0 && bounds.parentRect.height > 0) {
+          addRectEdges(bounds.parentRect);
+        }
+
+        // Add container boundary edges (edges of the whole preview area)
+        xEdges.push(0, containerRect.width);
+        yEdges.push(0, containerRect.height);
+        xCenters.push(containerRect.width / 2);
+        yCenters.push(containerRect.height / 2);
+
+        // Deduplicate edges (remove duplicates within 1px tolerance)
+        const dedupe = (arr) => {
+          const sorted = [...arr].sort((a, b) => a - b);
+          return sorted.filter((v, i) => i === 0 || Math.abs(v - sorted[i - 1]) > 1);
+        };
+
+        return {
+          xEdges: dedupe(xEdges),
+          yEdges: dedupe(yEdges),
+          xCenters: dedupe(xCenters),
+          yCenters: dedupe(yCenters),
+        };
+      };
+
+      const snapToEdges = (value, edges, threshold) => {
+        let closest = value;
+        let minDist = threshold + 1;
+        for (let i = 0; i < edges.length; i++) {
+          const dist = Math.abs(value - edges[i]);
+          if (dist < minDist) {
+            minDist = dist;
+            closest = edges[i];
+          }
+        }
+        return { value: closest, dist: minDist };
+      };
+
+      const applySnapping = (translate, elementRect, containerRect) => {
+        snapGuides.hide();
+        if (!snapState.enabled || snapState.altHeld) {
+          return translate;
+        }
+        if (!containerRect) {
+          return translate;
+        }
+
+        const scaleForSnap = snapState.scaleForSnap > 0 ? snapState.scaleForSnap : 1;
+        const grid = snapState.baseGridSize / scaleForSnap;
+        const threshold = snapState.baseThreshold / scaleForSnap;
+        const siblingEdges = snapState.siblingEdges;
+        const baseX = layoutState.baseTranslate.x;
+        const baseY = layoutState.baseTranslate.y;
+        const deltaX = translate.x - baseX;
+        const deltaY = translate.y - baseY;
+
+        // Calculate element position in CONTAINER-relative coordinates
+        // This matches the coordinate system used in collectSiblingEdges
+        const elemLeft = elementRect.left - containerRect.left + deltaX;
+        const elemRight = elemLeft + elementRect.width;
+        const elemCenterX = (elemLeft + elemRight) / 2;
+        const elemTop = elementRect.top - containerRect.top + deltaY;
+        const elemBottom = elemTop + elementRect.height;
+        const elemCenterY = (elemTop + elemBottom) / 2;
+
+        let snapDeltaX = deltaX;
+        let snapDeltaY = deltaY;
+        let snappedX = false;
+        let snappedY = false;
+        let snapXValue = null;
+        let snapYValue = null;
+        const xEdges = siblingEdges.xEdges || [];
+        const yEdges = siblingEdges.yEdges || [];
+        const xCenters = siblingEdges.xCenters || [];
+        const yCenters = siblingEdges.yCenters || [];
+
+        // Try to snap to sibling/container edges first
+        const leftSnap = snapToEdges(elemLeft, xEdges, threshold);
+        const rightSnap = snapToEdges(elemRight, xEdges, threshold);
+        const centerXSnap = snapToEdges(elemCenterX, xCenters, threshold);
+        const leftDiff = leftSnap.dist;
+        const rightDiff = rightSnap.dist;
+        const centerXDiff = centerXSnap.dist;
+
+        if (leftDiff <= threshold || rightDiff <= threshold) {
+          if (leftDiff <= rightDiff) {
+            snapDeltaX = deltaX + (leftSnap.value - elemLeft);
+            snappedX = true;
+            snapXValue = leftSnap.value;
+          } else {
+            snapDeltaX = deltaX + (rightSnap.value - elemRight);
+            snappedX = true;
+            snapXValue = rightSnap.value;
+          }
+        } else if (centerXDiff <= threshold) {
+          snapDeltaX = deltaX + (centerXSnap.value - elemCenterX);
+          snappedX = true;
+          snapXValue = centerXSnap.value;
+        }
+
+        const topSnap = snapToEdges(elemTop, yEdges, threshold);
+        const bottomSnap = snapToEdges(elemBottom, yEdges, threshold);
+        const centerYSnap = snapToEdges(elemCenterY, yCenters, threshold);
+        const topDiff = topSnap.dist;
+        const bottomDiff = bottomSnap.dist;
+        const centerYDiff = centerYSnap.dist;
+
+        if (topDiff <= threshold || bottomDiff <= threshold) {
+          if (topDiff <= bottomDiff) {
+            snapDeltaY = deltaY + (topSnap.value - elemTop);
+            snappedY = true;
+            snapYValue = topSnap.value;
+          } else {
+            snapDeltaY = deltaY + (bottomSnap.value - elemBottom);
+            snappedY = true;
+            snapYValue = bottomSnap.value;
+          }
+        } else if (centerYDiff <= threshold) {
+          snapDeltaY = deltaY + (centerYSnap.value - elemCenterY);
+          snappedY = true;
+          snapYValue = centerYSnap.value;
+        }
+
+        // If no edge snap, apply grid snapping
+        // Grid snap rounds the element position to nearest grid line
+        if (!snappedX) {
+          const snappedElemLeft = Math.round(elemLeft / grid) * grid;
+          snapDeltaX = deltaX + (snappedElemLeft - elemLeft);
+        }
+        if (!snappedY) {
+          const snappedElemTop = Math.round(elemTop / grid) * grid;
+          snapDeltaY = deltaY + (snappedElemTop - elemTop);
+        }
+
+        const guideThickness = Math.max(1, Math.round(1 / scaleForSnap));
+        if (snappedX && Number.isFinite(snapXValue)) {
+          snapGuides.showVertical(containerRect.left + snapXValue, guideThickness);
+        }
+        if (snappedY && Number.isFinite(snapYValue)) {
+          snapGuides.showHorizontal(containerRect.top + snapYValue, guideThickness);
+        }
+
+        return {
+          x: baseX + snapDeltaX,
+          y: baseY + snapDeltaY,
+        };
+      };
+
       const layoutDebugState = {
         enabled: false,
         seq: 0,
@@ -623,10 +912,84 @@ export function generatePreviewSrcdoc(
         container.style.cursor = isDragging ? "grabbing" : "grab";
       };
 
-      const computeDragDelta = () => ({
-        dx: layoutState.latestX - layoutState.startX,
-        dy: layoutState.latestY - layoutState.startY,
-      });
+      const computeDragDelta = () => {
+        // Mouse events in iframes ARE scaled by the parent's CSS transform.
+        // At scale=0.25, dragging 10 visual pixels reports delta=40 design pixels.
+        // No additional scaling needed here - browser handles coordinate mapping.
+        return {
+          dx: layoutState.latestX - layoutState.startX,
+          dy: layoutState.latestY - layoutState.startY,
+        };
+      };
+
+      const clampValue = (value, min, max) => {
+        if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) {
+          return value;
+        }
+        if (min <= max) {
+          return Math.min(Math.max(value, min), max);
+        }
+        return Math.min(Math.max(value, max), min);
+      };
+
+      const snapshotRect = (rect) => {
+        if (!rect) return null;
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        };
+      };
+
+      const buildLayoutBounds = (element) => {
+        if (!element || !(element instanceof Element)) return null;
+        const parent = element.parentElement;
+        if (!parent) return null;
+        const container = document.getElementById("snippet-container");
+        if (!container) return null;
+        const elementRect = snapshotRect(element.getBoundingClientRect());
+        const parentRect = snapshotRect(parent.getBoundingClientRect());
+        const containerRect = snapshotRect(container.getBoundingClientRect());
+        if (!elementRect || !parentRect || !containerRect) return null;
+        if (
+          !Number.isFinite(elementRect.width) ||
+          !Number.isFinite(elementRect.height) ||
+          elementRect.width <= 0 ||
+          elementRect.height <= 0
+        ) {
+          return null;
+        }
+        if (
+          !Number.isFinite(parentRect.width) ||
+          !Number.isFinite(parentRect.height) ||
+          parentRect.width <= 0 ||
+          parentRect.height <= 0
+        ) {
+          return null;
+        }
+        return { elementRect, parentRect, containerRect };
+      };
+
+      const constrainTranslateToParent = (translate) => {
+        const bounds = layoutState.bounds;
+        if (!bounds) return translate;
+        const base = layoutState.baseTranslate;
+        const deltaX = translate.x - base.x;
+        const deltaY = translate.y - base.y;
+        const minX = bounds.parentRect.left - bounds.elementRect.left;
+        const maxX = bounds.parentRect.right - bounds.elementRect.right;
+        const minY = bounds.parentRect.top - bounds.elementRect.top;
+        const maxY = bounds.parentRect.bottom - bounds.elementRect.bottom;
+        const clampedDeltaX = clampValue(deltaX, minX, maxX);
+        const clampedDeltaY = clampValue(deltaY, minY, maxY);
+        return {
+          x: base.x + clampedDeltaX,
+          y: base.y + clampedDeltaY,
+        };
+      };
 
       const buildLayoutDebugEntry = (kind, event, target, extra) => {
         const { dx, dy } = computeDragDelta();
@@ -701,11 +1064,15 @@ export function generatePreviewSrcdoc(
 
       const applyLayoutTranslate = () => {
         if (!layoutState.dragging || !layoutState.active) return;
+        const bounds = layoutState.bounds;
+        if (!bounds) return;
         const { dx, dy } = computeDragDelta();
-        const nextTranslate = {
+        let nextTranslate = constrainTranslateToParent({
           x: layoutState.baseTranslate.x + dx,
           y: layoutState.baseTranslate.y + dy,
-        };
+        });
+        nextTranslate = applySnapping(nextTranslate, bounds.elementRect, bounds.containerRect);
+        nextTranslate = constrainTranslateToParent(nextTranslate);
         layoutState.currentTranslate = nextTranslate;
         layoutState.active.style.translate = nextTranslate.x + "px " + nextTranslate.y + "px";
         elementTranslateMap.set(layoutState.active, nextTranslate);
@@ -723,6 +1090,7 @@ export function generatePreviewSrcdoc(
       const stopLayoutDrag = (commit) => {
         if (!layoutState.dragging) return;
         layoutState.dragging = false;
+        snapGuides.hide();
         const activeTarget = layoutState.active;
         const activePointerId = layoutState.pointerId;
         if (layoutState.raf) {
@@ -735,6 +1103,7 @@ export function generatePreviewSrcdoc(
         const translate = layoutState.currentTranslate;
         layoutState.active = null;
         layoutState.pointerId = null;
+        layoutState.bounds = null;
         document.removeEventListener("pointermove", handleLayoutPointerMove);
         document.removeEventListener("pointerup", handleLayoutPointerUp);
         document.removeEventListener("pointercancel", handleLayoutPointerCancel);
@@ -811,6 +1180,7 @@ export function generatePreviewSrcdoc(
         const rawDy = event.clientY - layoutState.latestY;
         layoutState.latestX = event.clientX;
         layoutState.latestY = event.clientY;
+        snapState.altHeld = Boolean(event.altKey);
         if (layoutDebugState.enabled && shouldSendMoveDebug(rawDx, rawDy)) {
           sendLayoutDebug(
             buildLayoutDebugEntry("pointermove", event, layoutState.active, {
@@ -859,7 +1229,15 @@ export function generatePreviewSrcdoc(
         layoutState.latestY = event.clientY;
         layoutState.baseTranslate = getElementTranslate(target);
         layoutState.currentTranslate = layoutState.baseTranslate;
+        layoutState.bounds = buildLayoutBounds(target);
         layoutState.pointerId = event.pointerId;
+        snapState.altHeld = Boolean(event.altKey);
+        snapState.scaleForSnap = inspectScale > 0 ? inspectScale : 1;
+        if (snapState.enabled && layoutState.bounds) {
+          snapState.siblingEdges = collectSiblingEdges(target, layoutState.bounds);
+        } else {
+          snapState.siblingEdges = { xEdges: [], yEdges: [], xCenters: [], yCenters: [] };
+        }
         if (layoutDebugState.enabled) {
           sendLayoutDebug(buildLayoutDebugEntry("pointerdown", event, target));
         }
@@ -896,17 +1274,21 @@ export function generatePreviewSrcdoc(
         if (!layoutState.enabled) {
           detachLayoutListeners();
           stopLayoutDrag(false);
+          snapGuides.hide();
           layoutState.commitPending = false;
+          layoutState.bounds = null;
           if (layoutState.commitTimeout) {
             window.clearTimeout(layoutState.commitTimeout);
             layoutState.commitTimeout = 0;
           }
           clearLayoutCache();
           setLayoutCursor(false);
+          updateInspectOverlay();
           return;
         }
         attachLayoutListeners();
         setLayoutCursor(false);
+        updateInspectOverlay();
       };
 
       const LAYER_SNAPSHOT_LIMIT = 700;
@@ -1152,11 +1534,23 @@ export function generatePreviewSrcdoc(
           return;
         }
         if (data.type === "inspect-scale") {
-          setInspectScale(typeof data.scale === "number" ? data.scale : 1);
+          const nextScale = typeof data.scale === "number" ? data.scale : 1;
+          setInspectScale(nextScale);
+          snapState.scaleForSnap = inspectScale;
           return;
         }
         if (data.type === "layout-toggle") {
           setLayoutEnabled(Boolean(data.enabled));
+          return;
+        }
+        if (data.type === "layout-snap-toggle") {
+          snapState.enabled = Boolean(data.enabled);
+          return;
+        }
+        if (data.type === "layout-snap-grid") {
+          if (typeof data.grid === "number") {
+            snapState.baseGridSize = clampGridSize(data.grid);
+          }
           return;
         }
         if (data.type === "layout-debug-toggle") {

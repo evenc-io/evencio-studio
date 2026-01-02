@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { Button } from "@/components/ui/button"
 import type { AnalyzeTsxResponse } from "@/lib/engine/protocol"
 import { cn } from "@/lib/utils"
 import { getSnippetWasmStatus } from "@/lib/wasm/snippet-wasm"
@@ -19,6 +20,10 @@ interface SnippetSettingsPanelProps {
 	analysisError: string | null
 	includeTailwind: boolean
 	includeInspect: boolean
+	layoutSnapEnabled: boolean
+	onToggleLayoutSnap: () => void
+	layoutSnapGrid: number
+	onChangeLayoutSnapGrid: (value: number) => void
 }
 
 type WasmStatus = {
@@ -44,6 +49,8 @@ const statusClasses: Record<LogStatus, string> = {
 	loading: "border-neutral-200 bg-neutral-100 text-neutral-500",
 }
 
+const GRID_STEP_OPTIONS = [4, 8, 12, 16, 24, 32]
+
 export function SnippetSettingsPanel({
 	open,
 	analysis,
@@ -51,6 +58,10 @@ export function SnippetSettingsPanel({
 	analysisError,
 	includeTailwind,
 	includeInspect,
+	layoutSnapEnabled,
+	onToggleLayoutSnap,
+	layoutSnapGrid,
+	onChangeLayoutSnapGrid,
 }: SnippetSettingsPanelProps) {
 	const [wasmStatus, setWasmStatus] = useState<WasmStatus>({
 		supported: false,
@@ -173,6 +184,63 @@ export function SnippetSettingsPanel({
 							Settings
 						</div>
 						<div className="flex-1 overflow-y-auto">
+							<CollapsibleSection title="Layout" defaultOpen={false}>
+								<div className="flex items-start justify-between gap-3">
+									<div>
+										<p className="text-[11px] font-semibold uppercase tracking-widest text-neutral-700">
+											Snap to grid
+										</p>
+										<p className="mt-1 text-[10px] text-neutral-500">
+											Snap to grid and sibling edges/centers. Hold Alt to disable while dragging.
+										</p>
+									</div>
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										className={cn(
+											"h-7 px-2 text-[11px]",
+											layoutSnapEnabled
+												? "bg-neutral-900 text-white hover:bg-neutral-800"
+												: "text-neutral-500 hover:text-neutral-700",
+										)}
+										aria-pressed={layoutSnapEnabled}
+										onClick={onToggleLayoutSnap}
+									>
+										{layoutSnapEnabled ? "On" : "Off"}
+									</Button>
+								</div>
+								<div className="mt-4 flex items-center justify-between gap-3">
+									<div>
+										<p className="text-[11px] font-semibold uppercase tracking-widest text-neutral-700">
+											Grid step
+										</p>
+										<p className="mt-1 text-[10px] text-neutral-500">
+											Choose how many pixels each snap step uses.
+										</p>
+									</div>
+									<select
+										value={layoutSnapGrid}
+										onChange={(event) => {
+											const nextValue = Number(event.target.value)
+											if (Number.isFinite(nextValue)) {
+												onChangeLayoutSnapGrid(nextValue)
+											}
+										}}
+										disabled={!layoutSnapEnabled}
+										className={cn(
+											"h-8 rounded-md border border-neutral-200 bg-white px-2 text-[11px] font-semibold text-neutral-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900",
+											!layoutSnapEnabled && "cursor-not-allowed text-neutral-400",
+										)}
+									>
+										{GRID_STEP_OPTIONS.map((size) => (
+											<option key={size} value={size}>
+												{size}px
+											</option>
+										))}
+									</select>
+								</div>
+							</CollapsibleSection>
 							<CollapsibleSection title="Developer" defaultOpen={false}>
 								<div className="flex items-center justify-between">
 									<p className="text-[11px] font-semibold uppercase tracking-widest text-neutral-400">
