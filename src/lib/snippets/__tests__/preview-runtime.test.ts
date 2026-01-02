@@ -3,7 +3,7 @@ import {
 	DEFAULT_PREVIEW_DIMENSIONS,
 	generatePreviewSrcdoc,
 	type PreviewDimensions,
-} from "../preview-runtime"
+} from "../preview/runtime"
 
 describe("generatePreviewSrcdoc", () => {
 	const mockCompiledCode = `

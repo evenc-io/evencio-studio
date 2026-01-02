@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { DEFAULT_PREVIEW_DIMENSIONS, generatePreviewSrcdoc } from "../preview-runtime"
+import { DEFAULT_PREVIEW_DIMENSIONS, generatePreviewSrcdoc } from "../preview/runtime"
 
 const mockCompiledCode = `
 (function() {

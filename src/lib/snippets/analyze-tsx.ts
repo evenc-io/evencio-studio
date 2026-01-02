@@ -6,10 +6,10 @@ import {
 } from "@/lib/wasm/snippet-wasm"
 import { loadBabelParser } from "./babel-parser"
 import { buildSnippetInspectIndex, type SnippetInspectIndex } from "./inspect-index"
-import { analyzeSnippetProgram } from "./source-derived"
-import { scanSnippetFilesInWasm } from "./source-files-wasm"
-import { hashSnippetSource } from "./source-hash"
-import { analyzeSnippetAst } from "./source-security"
+import { analyzeSnippetProgram } from "./source/derived"
+import { scanSnippetFilesInWasm } from "./source/files-wasm"
+import { hashSnippetSource } from "./source/hash"
+import { analyzeSnippetAst } from "./source/security"
 import {
 	buildSnippetTailwindCssFromCandidates,
 	extractTailwindCandidatesFromAst,

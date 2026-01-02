@@ -1,7 +1,7 @@
 import type { EngineRequest, EngineResponse } from "@/lib/engine/protocol"
 import { analyzeSnippetTsx } from "@/lib/snippets/analyze-tsx"
 import { compileSnippet } from "@/lib/snippets/compiler"
-import { applySnippetTranslate } from "@/lib/snippets/source-layout"
+import { applySnippetTranslate } from "@/lib/snippets/source/layout"
 
 const send = (message: EngineResponse) => {
 	postMessage(message)

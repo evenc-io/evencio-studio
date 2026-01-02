@@ -1,4 +1,4 @@
-import { serializeSnippetFiles } from "./source-files"
+import { serializeSnippetFiles } from "./source/files"
 import { STARTER_SNIPPET_SOURCE } from "./starter-snippet"
 
 export type SnippetTemplateId = "single" | "multi"

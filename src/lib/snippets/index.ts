@@ -3,7 +3,7 @@ import type { SnippetProps, SnippetRuntime } from "@/types/asset-library"
 import LaunchHero from "./launch-hero"
 
 // Re-export preview runtime and hook
-export * from "./preview-runtime"
+export * from "./preview/runtime"
 export {
 	DEFAULT_SNIPPET_EXPORT,
 	deriveSnippetPropsFromAllExports,
@@ -13,8 +13,8 @@ export {
 	removeSnippetComponentExport,
 	type SnippetComponentExport,
 	type SnippetComponentSourceMap,
-} from "./source-derived"
-export * from "./source-files"
+} from "./source/derived"
+export * from "./source/files"
 export {
 	type CompileStatus,
 	type UseSnippetCompilerOptions,

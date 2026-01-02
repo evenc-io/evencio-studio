@@ -4,7 +4,7 @@ import { scanTailwindCandidatesWasm } from "@/lib/wasm/snippet-wasm"
 import appStylesRaw from "@/styles.css?raw"
 import { loadBabelParser } from "./babel-parser"
 import { SNIPPET_TAILWIND_MAX_CANDIDATES, SNIPPET_TAILWIND_MAX_CSS_CHARS } from "./constraints"
-import { expandSnippetSource } from "./source-files"
+import { expandSnippetSource } from "./source/files"
 
 let compilerPromise: Promise<Awaited<ReturnType<typeof compile>>> | null = null
 

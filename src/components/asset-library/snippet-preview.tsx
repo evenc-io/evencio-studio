@@ -18,7 +18,7 @@ import {
 	type PreviewLayoutDebugEvent,
 	type PreviewMessage,
 	type PreviewSourceLocation,
-} from "@/lib/snippets/preview-runtime"
+} from "@/lib/snippets/preview/runtime"
 
 export interface SnippetPreviewProps {
 	/** Compiled JavaScript code from the snippet compiler */

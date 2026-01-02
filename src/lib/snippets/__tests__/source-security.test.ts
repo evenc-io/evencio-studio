@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { analyzeSnippetSource } from "../source-security"
+import { analyzeSnippetSource } from "../source/security"
 
 describe("analyzeSnippetSource", () => {
 	it("allows React-only imports", async () => {

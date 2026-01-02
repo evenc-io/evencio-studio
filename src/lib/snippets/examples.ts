@@ -1,5 +1,5 @@
-import type { PreviewDimensions } from "@/lib/snippets/preview-runtime"
-import { serializeSnippetFiles } from "@/lib/snippets/source-files"
+import type { PreviewDimensions } from "@/lib/snippets/preview/runtime"
+import { serializeSnippetFiles } from "@/lib/snippets/source/files"
 
 export type SnippetExampleCategory = "hero" | "social" | "banner" | "logo"
 
