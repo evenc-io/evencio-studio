@@ -1,8 +1,8 @@
 import type { CompileResult } from "@/lib/snippets/compiler"
 import type { SnippetInspectIndex } from "@/lib/snippets/inspect-index"
-import type { SnippetComponentExport } from "@/lib/snippets/source-derived"
-import type { SnippetLineMapSegment } from "@/lib/snippets/source-files"
-import type { SourceSecurityIssue } from "@/lib/snippets/source-security"
+import type { SnippetComponentExport } from "@/lib/snippets/source/derived"
+import type { SnippetLineMapSegment } from "@/lib/snippets/source/files"
+import type { SourceSecurityIssue } from "@/lib/snippets/source/security"
 import type { SnippetProps, SnippetPropsSchemaDefinition } from "@/types/asset-library"
 
 export type AnalyzeTsxRequest = {

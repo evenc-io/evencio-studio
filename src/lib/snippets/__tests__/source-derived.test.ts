@@ -3,7 +3,7 @@ import {
 	DEFAULT_SNIPPET_EXPORT,
 	deriveSnippetPropsFromSource,
 	listSnippetComponentExports,
-} from "../source-derived"
+} from "../source/derived"
 
 describe("deriveSnippetPropsFromSource", () => {
 	it("derives defaults from destructured params", async () => {

@@ -6,7 +6,7 @@ import {
 	SNIPPET_COMPONENT_LIMITS,
 	SNIPPET_SOURCE_MAX_CHARS,
 } from "@/lib/snippets/constraints"
-import type { SnippetComponentExport } from "@/lib/snippets/source-derived"
+import type { SnippetComponentExport } from "@/lib/snippets/source/derived"
 import type {
 	Asset,
 	AssetAttribution,
@@ -462,7 +462,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 		let componentExports: SnippetComponentExport[] = []
 		try {
 			const { deriveSnippetPropsFromSource, listSnippetComponentExports } = await import(
-				"@/lib/snippets/source-derived"
+				"@/lib/snippets/source/derived"
 			)
 			componentExports = await listSnippetComponentExports(input.source)
 			if (componentExports.length === 0) {
@@ -571,7 +571,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 		const tagIds = await ensureTagIds(service, input.tagNames, nextScopeRef)
 
 		const { deriveSnippetPropsFromSource, listSnippetComponentExports } = await import(
-			"@/lib/snippets/source-derived"
+			"@/lib/snippets/source/derived"
 		)
 		const componentExports = await listSnippetComponentExports(input.source)
 		if (componentExports.length === 0) {
@@ -653,7 +653,7 @@ export const useAssetLibraryStore = create<AssetLibraryState & AssetLibraryActio
 		}
 
 		const { deriveSnippetPropsFromSource, listSnippetComponentExports } = await import(
-			"@/lib/snippets/source-derived"
+			"@/lib/snippets/source/derived"
 		)
 		const componentExports = await listSnippetComponentExports(source)
 		if (componentExports.length === 0) {

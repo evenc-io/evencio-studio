@@ -10,9 +10,9 @@ import { compileSnippetInEngine } from "@/lib/engine/client"
 import type { AnalyzeTsxResponse } from "@/lib/engine/protocol"
 import type { CompileError } from "./compiler"
 import { SNIPPET_COMPONENT_LIMITS, SNIPPET_SOURCE_MAX_CHARS } from "./constraints"
-import { DEFAULT_SNIPPET_EXPORT } from "./source-derived"
-import { hashSnippetSourceSync } from "./source-hash"
-import { securityIssuesToCompileErrors } from "./source-security"
+import { DEFAULT_SNIPPET_EXPORT } from "./source/derived"
+import { hashSnippetSourceSync } from "./source/hash"
+import { securityIssuesToCompileErrors } from "./source/security"
 
 export type CompileStatus = "idle" | "compiling" | "success" | "error"
 

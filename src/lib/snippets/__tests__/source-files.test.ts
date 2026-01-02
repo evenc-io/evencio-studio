@@ -4,7 +4,7 @@ import {
 	expandSnippetSource,
 	extractSnippetImports,
 	parseSnippetFiles,
-} from "../source-files"
+} from "../source/files"
 
 const source = [
 	"// @snippet-file utils.ts",
@@ -18,7 +18,7 @@ const source = [
 	"export default function App() { return <Widget /> }",
 ].join("\n")
 
-describe("source-files", () => {
+describe("source/files", () => {
 	it("parses snippet file blocks", () => {
 		const parsed = parseSnippetFiles(source)
 		expect(parsed.hasFileBlocks).toBe(true)

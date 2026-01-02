@@ -7,7 +7,7 @@
 
 import type * as esbuild from "esbuild-wasm"
 import { withTimeout } from "./async-timeout"
-import { scanSnippetFilesInWasm } from "./source-files-wasm"
+import { scanSnippetFilesInWasm } from "./source/files-wasm"
 
 // Types
 export interface CompileError {

@@ -8,7 +8,7 @@ import type {
 } from "@/lib/engine/protocol"
 import { analyzeSnippetTsx } from "@/lib/snippets/analyze-tsx"
 import { compileSnippet } from "@/lib/snippets/compiler"
-import { applySnippetTranslate } from "@/lib/snippets/source-layout"
+import { applySnippetTranslate } from "@/lib/snippets/source/layout"
 
 const isBrowser = typeof window !== "undefined" || typeof self !== "undefined"
 const hasWorker = typeof Worker !== "undefined"

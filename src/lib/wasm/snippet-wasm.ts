@@ -4,8 +4,8 @@ import {
 	expandSnippetSource,
 	type SnippetFileScanResult,
 	type SnippetLineMapSegment,
-} from "@/lib/snippets/source-files"
-import type { SourceSecurityIssue } from "@/lib/snippets/source-security"
+} from "@/lib/snippets/source/files"
+import type { SourceSecurityIssue } from "@/lib/snippets/source/security"
 
 type SnippetWasmExports = {
 	memory: WebAssembly.Memory
