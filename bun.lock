@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "evencio-marketing-tools",
+      "name": "evencio-studio",
       "dependencies": {
         "@babel/parser": "^7.28.5",
         "@dnd-kit/core": "^6.3.1",

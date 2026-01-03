@@ -1,7 +1,7 @@
 # Connector Modules
 
 ## Purpose
-Connector modules let the Marketing Tools app discover integrations in a consistent, typed way. Each connector is a small manifest that describes auth requirements, capabilities, and setup steps so third parties can add their own connectors without editing the UI.
+Connector modules let the Evencio Studio app discover integrations in a consistent, typed way. Each connector is a small manifest that describes auth requirements, capabilities, and setup steps so third parties can add their own connectors without editing the UI.
 
 ## Directory layout
 ```
@@ -90,7 +90,7 @@ import { defineConnector } from "@/lib/connectors"
 export const exampleConnector = defineConnector({
   id: "example",
   name: "Example",
-  summary: "Sync example events into Marketing Tools.",
+  summary: "Sync example events into Evencio Studio.",
   description: "Example connector used for third-party integrations.",
   category: "events",
   status: "beta",
@@ -105,7 +105,7 @@ export const exampleConnector = defineConnector({
   setup: [
     { title: "Create an API key", description: "Generate a key in the vendor dashboard." },
   ],
-  docsPath: "https://docs.example.com/connectors/marketing-tools",
+  docsPath: "https://docs.example.com/connectors/evencio-studio",
   connection: {
     startPath: "/api/integrations/example/connect",
     statusPath: "/api/integrations/example/status",

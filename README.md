@@ -1,6 +1,6 @@
-# Evencio Marketing Tools
+# Evencio Studio
 
-> Source-available marketing tool for event organizers - design social images, posters, and code-driven snippets.
+> Source-available studio for event organizers - design social images, posters, and code-driven snippets.
 
 [![Built with Bun](https://img.shields.io/badge/Built%20with-Bun-black)](https://bun.sh)
 [![TanStack Start](https://img.shields.io/badge/TanStack-Start-blue)](https://tanstack.com/start)
@@ -37,8 +37,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/evenc-io/evencio-marketing-tools.git
-cd evencio-marketing-tools
+git clone https://github.com/evenc-io/evencio-studio.git
+cd evencio-studio
 
 # Install dependencies
 bun install

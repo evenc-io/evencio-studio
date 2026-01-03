@@ -11,7 +11,19 @@ import type { Project, StorageMetadata } from "@/types/project"
 import { CURRENT_SCHEMA_VERSION } from "@/types/project"
 import { runMigrations } from "./migrations"
 
-const DB_NAME = "evencio-marketing-tools"
+export const DATABASE_NAME = "evencio-studio"
+export const LEGACY_DATABASE_NAME = "evencio-marketing-tools"
+const STORE_NAMES = [
+	"projects",
+	"metadata",
+	"assets",
+	"assetTags",
+	"assetCollections",
+	"assetFavorites",
+	"assetVersions",
+	"assetStorage",
+] as const
+type StoreName = (typeof STORE_NAMES)[number]
 
 /**
  * IndexedDB schema type for type-safe database operations.
@@ -75,30 +87,80 @@ interface EvencioDBSchema extends DBSchema {
 
 let dbPromise: Promise<IDBPDatabase<EvencioDBSchema>> | null = null
 
+const migrateLegacyDbIfNeeded = async () => {
+	if (typeof indexedDB === "undefined" || typeof indexedDB.databases !== "function") {
+		return
+	}
+
+	let databases: IDBDatabaseInfo[]
+	try {
+		databases = await indexedDB.databases()
+	} catch {
+		return
+	}
+
+	const hasLegacy = databases.some((db) => db.name === LEGACY_DATABASE_NAME)
+	const hasNew = databases.some((db) => db.name === DATABASE_NAME)
+	if (!hasLegacy || hasNew) {
+		return
+	}
+
+	try {
+		const legacyDb = await openDB<EvencioDBSchema>(LEGACY_DATABASE_NAME, CURRENT_SCHEMA_VERSION, {
+			upgrade(db, oldVersion) {
+				runMigrations(db as unknown as IDBPDatabase, oldVersion)
+			},
+		})
+		const newDb = await openDB<EvencioDBSchema>(DATABASE_NAME, CURRENT_SCHEMA_VERSION, {
+			upgrade(db, oldVersion) {
+				runMigrations(db as unknown as IDBPDatabase, oldVersion)
+			},
+		})
+
+		for (const storeName of STORE_NAMES) {
+			const records = await legacyDb.getAll(storeName as StoreName)
+			if (records.length === 0) continue
+			const tx = newDb.transaction(storeName as StoreName, "readwrite")
+			for (const record of records) {
+				await tx.store.put(record)
+			}
+			await tx.done
+		}
+
+		legacyDb.close()
+		newDb.close()
+	} catch (error) {
+		console.warn("[Storage] Legacy database migration failed", error)
+	}
+}
+
 /**
  * Get the IndexedDB database instance.
  * Creates and migrates the database on first call.
  */
 export async function getDb(): Promise<IDBPDatabase<EvencioDBSchema>> {
 	if (!dbPromise) {
-		dbPromise = openDB<EvencioDBSchema>(DB_NAME, CURRENT_SCHEMA_VERSION, {
-			upgrade(db, oldVersion, _newVersion, _transaction) {
-				runMigrations(db as unknown as IDBPDatabase, oldVersion)
-			},
-			blocked() {
-				console.warn("[Storage] Database upgrade blocked by another tab")
-			},
-			blocking() {
-				// Close connection to allow other tabs to upgrade
-				console.warn("[Storage] Closing connection for upgrade in another tab")
-				dbPromise?.then((db) => db.close())
-				dbPromise = null
-			},
-			terminated() {
-				console.error("[Storage] Database connection terminated unexpectedly")
-				dbPromise = null
-			},
-		})
+		dbPromise = (async () => {
+			await migrateLegacyDbIfNeeded()
+			return openDB<EvencioDBSchema>(DATABASE_NAME, CURRENT_SCHEMA_VERSION, {
+				upgrade(db, oldVersion, _newVersion, _transaction) {
+					runMigrations(db as unknown as IDBPDatabase, oldVersion)
+				},
+				blocked() {
+					console.warn("[Storage] Database upgrade blocked by another tab")
+				},
+				blocking() {
+					// Close connection to allow other tabs to upgrade
+					console.warn("[Storage] Closing connection for upgrade in another tab")
+					dbPromise?.then((db) => db.close())
+					dbPromise = null
+				},
+				terminated() {
+					console.error("[Storage] Database connection terminated unexpectedly")
+					dbPromise = null
+				},
+			})
+		})()
 	}
 	return dbPromise
 }

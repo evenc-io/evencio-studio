@@ -5,7 +5,7 @@ export const evencioConnector = defineConnector({
 	name: "Evencio",
 	summary: "Connect Evencio to sync events, venues, guests, and brand assets.",
 	description:
-		"Use Evencio OAuth to authorize the Marketing Tools app to access event data, venues, guests, and branding from your organization.",
+		"Use Evencio OAuth to authorize the Evencio Studio app to access event data, venues, guests, and branding from your organization.",
 	category: "events",
 	status: "beta",
 	icon: "cloud",

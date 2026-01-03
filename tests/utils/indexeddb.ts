@@ -1,4 +1,5 @@
-export const TEST_DB_NAME = "evencio-marketing-tools"
+export const TEST_DB_NAME = "evencio-studio"
+const LEGACY_TEST_DB_NAME = "evencio-marketing-tools"
 
 export const deleteDatabase = (name: string) =>
 	new Promise<void>((resolve, reject) => {
@@ -14,4 +15,5 @@ export const deleteDatabase = (name: string) =>
 
 export const resetIndexedDb = async () => {
 	await deleteDatabase(TEST_DB_NAME)
+	await deleteDatabase(LEGACY_TEST_DB_NAME)
 }

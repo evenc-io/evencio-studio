@@ -172,9 +172,7 @@ function SettingsOverviewPage() {
 				</div>
 
 				{/* Version Info */}
-				<div className="text-center text-sm text-neutral-400">
-					Evencio Marketing Tools &middot; v0.1.0
-				</div>
+				<div className="text-center text-sm text-neutral-400">Evencio Studio &middot; v0.1.0</div>
 			</div>
 		</div>
 	)

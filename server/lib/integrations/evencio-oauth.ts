@@ -2,6 +2,10 @@ import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { z } from "zod"
 
 const DEFAULT_SCOPES = ["events:read", "venues:read", "guests:read", "offline_access"]
+const INTERNAL_OAUTH_PROVISION_PATHS = [
+	"/api/oauth/internal/studio",
+	"/api/oauth/internal/marketing-tool",
+]
 
 const tokenResponseSchema = z.object({
 	access_token: z.string().min(1),
@@ -368,30 +372,40 @@ export const provisionOAuthClient = async (
 	const redirectUris = options.redirectUris ?? [env.redirectUri]
 	const scopes = options.scopes ?? env.scopes
 	const rotateSecret = options.rotateSecret ?? false
-	const response = await fetch(`${env.authBaseUrl}/api/oauth/internal/marketing-tool`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Accept: "application/json",
-			cookie,
-		},
-		body: JSON.stringify({
-			redirectUris,
-			scopes,
-			rotateSecret,
-		}),
-	})
+	let lastError: Error | null = null
 
-	if (!response.ok) {
-		throw new Error("Failed to provision OAuth client")
+	for (const path of INTERNAL_OAUTH_PROVISION_PATHS) {
+		const response = await fetch(`${env.authBaseUrl}${path}`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				cookie,
+			},
+			body: JSON.stringify({
+				redirectUris,
+				scopes,
+				rotateSecret,
+			}),
+		})
+
+		if (!response.ok) {
+			if (response.status === 404 || response.status === 405) {
+				lastError = new Error("OAuth provision endpoint not available")
+				continue
+			}
+			throw new Error("Failed to provision OAuth client")
+		}
+
+		const json = await response.json().catch(() => null)
+		const normalized = normalizeProvisionResponse(json)
+		const parsed = provisionResponseSchema.safeParse(normalized)
+		if (!parsed.success) {
+			throw new Error("Invalid OAuth client response")
+		}
+
+		return parsed.data
 	}
 
-	const json = await response.json().catch(() => null)
-	const normalized = normalizeProvisionResponse(json)
-	const parsed = provisionResponseSchema.safeParse(normalized)
-	if (!parsed.success) {
-		throw new Error("Invalid OAuth client response")
-	}
-
-	return parsed.data
+	throw lastError ?? new Error("Failed to provision OAuth client")
 }

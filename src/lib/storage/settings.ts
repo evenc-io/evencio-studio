@@ -1,6 +1,4 @@
-import { closeDb, isIndexedDBAvailable } from "./indexeddb"
-
-const DB_NAME = "evencio-marketing-tools"
+import { closeDb, DATABASE_NAME, isIndexedDBAvailable, LEGACY_DATABASE_NAME } from "./indexeddb"
 
 export interface StorageEstimate {
 	used: number
@@ -54,30 +52,34 @@ export async function clearAllData(): Promise<void> {
 	await closeDb()
 
 	// Delete the database
-	return new Promise((resolve, reject) => {
-		let settled = false
-		const finalize = (fn: () => void) => {
-			if (settled) return
-			settled = true
-			fn()
-		}
-		const request = indexedDB.deleteDatabase(DB_NAME)
+	const deleteDatabase = (name: string) =>
+		new Promise<void>((resolve, reject) => {
+			let settled = false
+			const finalize = (fn: () => void) => {
+				if (settled) return
+				settled = true
+				fn()
+			}
+			const request = indexedDB.deleteDatabase(name)
 
-		request.onsuccess = () => {
-			finalize(resolve)
-		}
+			request.onsuccess = () => {
+				finalize(resolve)
+			}
 
-		request.onerror = () => {
-			finalize(() => reject(new Error("Failed to delete database")))
-		}
+			request.onerror = () => {
+				finalize(() => reject(new Error("Failed to delete database")))
+			}
 
-		request.onblocked = () => {
-			console.warn("[Storage] Database deletion blocked by another connection")
-			finalize(() =>
-				reject(new Error("Database deletion blocked. Close other tabs and try again.")),
-			)
-		}
-	})
+			request.onblocked = () => {
+				console.warn("[Storage] Database deletion blocked by another connection")
+				finalize(() =>
+					reject(new Error("Database deletion blocked. Close other tabs and try again.")),
+				)
+			}
+		})
+
+	await deleteDatabase(DATABASE_NAME)
+	await deleteDatabase(LEGACY_DATABASE_NAME)
 }
 
 /**

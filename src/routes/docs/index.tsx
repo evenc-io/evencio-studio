@@ -10,7 +10,7 @@ function DocsOverview() {
 		<div className="mx-auto flex w-full max-w-5xl flex-col gap-10 px-6 py-12">
 			<header>
 				<p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-400">
-					Evencio Docs
+					Evencio Studio Docs
 				</p>
 				<h1 className="mt-4 font-lexend text-3xl font-semibold tracking-tight text-neutral-900">
 					Snippets editor documentation

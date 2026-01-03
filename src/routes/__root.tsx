@@ -15,12 +15,12 @@ export const Route = createRootRoute({
 				content: "width=device-width, initial-scale=1",
 			},
 			{
-				title: "Evencio Marketing Tools",
+				title: "Evencio Studio",
 			},
 			{
 				name: "description",
 				content:
-					"Create stunning social media images, posters, and promotional materials for your events",
+					"Evencio Studio lets you create social media images, posters, and promotional materials for events",
 			},
 		],
 		links: [

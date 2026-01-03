@@ -35,7 +35,8 @@ The Evencio connector uses OAuth 2.0 Authorization Code with PKCE to authorize a
 
 ## Recommended setup flow
 1. **Provision OAuth client**
-   - Call `POST /api/oauth/internal/marketing-tool` from the server with the admin session cookie.
+   - Call `POST /api/oauth/internal/studio` from the server with the admin session cookie.
+   - Legacy path `POST /api/oauth/internal/marketing-tool` is supported during the transition.
    - Store `clientId` and `clientSecret` per organization on the server.
 2. **Start admin consent**
    - Generate PKCE values and redirect the admin to `/oauth/authorize` with `response_type=code`.
@@ -48,16 +49,16 @@ The Evencio connector uses OAuth 2.0 Authorization Code with PKCE to authorize a
 6. **Refresh tokens**
    - When the access token expires, use `grant_type=refresh_token` with the refresh token.
 
-## Marketing Tools server endpoints
-The Marketing Tools app exposes server routes to run the OAuth flow securely:
+## Evencio Studio server endpoints
+The Evencio Studio app exposes server routes to run the OAuth flow securely:
 
 - `GET /api/integrations/evencio/connect` - Starts OAuth and redirects to the Evencio authorize page.
 - `GET /oauth/callback` - Handles the OAuth redirect and exchanges the authorization code.
 - `GET /api/integrations/evencio/status` - Returns connection status and resolved org/user data.
 - `POST /api/integrations/evencio/disconnect` - Clears stored tokens for the current session.
 
-## Environment variables (Marketing Tools)
-Set these on the Marketing Tools server:
+## Environment variables (Evencio Studio)
+Set these on the Evencio Studio server:
 
 No env vars are required for local dev or production defaults. Use these only to override:
 
@@ -69,7 +70,7 @@ No env vars are required for local dev or production defaults. Use these only to
 **Note:** OAuth clients are auto-provisioned per org using the admin session cookie. The current implementation stores client credentials and tokens in memory. For production use, persist refresh tokens (and client secrets) in a database or vault per organization.
 
 ## Admin session cookie (local dev)
-The auto-provision endpoint requires the Evencio admin session cookie. For local dev, run the Marketing Tools app on a subdomain of `evencio-cdn-secure.com` (for example via hosts + proxy) so the cookie is sent to the app server. For production, run on a subdomain of `evenc.io` (for example `studio.evenc.io`).
+The auto-provision endpoint requires the Evencio admin session cookie. For local dev, run the Evencio Studio app on a subdomain of `evencio-cdn-secure.com` (for example via hosts + proxy) so the cookie is sent to the app server. For production, run on a subdomain of `evenc.io` (for example `studio.evenc.io`).
 
 ## OAuth events API behavior
 All `/oauth/*` endpoints require `Authorization: Bearer <access_token>` (RS256 JWT) with `events:read` for event data.

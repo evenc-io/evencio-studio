@@ -1,11 +1,11 @@
 {
-	"name": "evencio-marketing-tools",
+	"name": "evencio-studio",
 	"private": false,
-	"description": "Source-available marketing tool for event organizers - create social media images, posters, and promotional materials",
+	"description": "Evencio Studio - source-available design studio for event organizers",
 	"license": "FSL-1.1-MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/evenc-io/evencio-marketing-tools.git"
+		"url": "https://github.com/evenc-io/evencio-studio.git"
 	},
 	"keywords": [
 		"marketing",
