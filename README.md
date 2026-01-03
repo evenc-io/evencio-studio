@@ -1,25 +1,33 @@
 # Evencio Studio
 
-> Source-available studio for event organizers - design social images, posters, and code-driven snippets.
+> Code-first, AI-ready visual composition studio for marketing assets, brand systems, and presentations.
 
 [![Built with Bun](https://img.shields.io/badge/Built%20with-Bun-black)](https://bun.sh)
 [![TanStack Start](https://img.shields.io/badge/TanStack-Start-blue)](https://tanstack.com/start)
 
 ## What you can do
 
-- Project dashboard with multi-slide designs and presets for social and print sizes
-- Canvas editor (Fabric.js) with layers, transforms, autosave, and PNG/JPEG/PDF export
-- Snippet editor for React/TSX assets with Monaco, live preview, templates, and validation
-- Asset library with tags, favorites, and scope levels (global/org/event/personal)
-- Local-first storage (IndexedDB) with thumbnails and storage management
-- Integrations settings for the upcoming Evencio connector
+- Build reusable, parameterized visual components in React/TSX with Monaco + live preview
+- Define typed props and defaults for safe, programmatic generation
+- Compose multi-slide sets and presets for social, print, and presentation formats
+- Render deterministically with sandboxed execution and constrained inputs
+- Manage assets with tags, favorites, and scope levels (global/org/event/personal)
+- Work local-first (IndexedDB) with thumbnails and storage management
+- Configure integrations for upcoming connectors
+
+## Why code-first
+
+Design assets become executable, inspectable components instead of opaque pixels. That means:
+- Structured inputs (props + schema) that automation can reason about
+- Deterministic outputs for reliable generation and review
+- Safe remixing without losing design intent across campaigns and decks
 
 ## Tech Stack
 
 - Framework: TanStack Start + TanStack Router + TanStack Query (React 19)
 - Runtime: Bun + Vite + Nitro
-- Canvas: Fabric.js
-- Snippets: Monaco Editor + esbuild-wasm
+- Editor: Monaco Editor + React/TSX rendering pipeline
+- Compiler: esbuild-wasm
 - Performance: Zig/WASM helpers for snippet analysis (optional build)
 - UI: shadcn/ui + Tailwind CSS v4
 - State: Zustand
@@ -63,17 +71,17 @@ bun run start
 
 ```
 src/
-├── routes/              # Dashboard, project editor, asset library, snippets editor, settings
+├── routes/              # Dashboard, studio, asset library, snippets editor, settings
 ├── components/
 │   ├── asset-library/   # Asset library UI
 │   ├── dashboard/       # Project dashboard components
-│   ├── editor/          # Fabric.js editor UI
+│   ├── editor/          # Studio editor UI
 │   ├── layout/          # App layout and navigation
 │   └── ui/              # shadcn/ui components
 ├── lib/
 │   ├── asset-library/   # Asset registry, search, and rendering
 │   ├── snippets/        # Snippet compiler, templates, and preview runtime
-│   ├── export/          # PNG/JPEG/PDF export utilities
+│   ├── export/          # Export utilities
 │   ├── storage/         # IndexedDB storage, autosave, thumbnails
 │   └── wasm/            # Zig/WASM helpers for snippet parsing
 ├── stores/              # Zustand stores
@@ -113,7 +121,7 @@ See docs/benchmarks/README.md for details.
 
 ## Snippet Rendering Fonts
 
-Server-side snippet PNG rendering embeds font data to keep exports deterministic. To refresh the embedded fonts:
+Server-side snippet rendering embeds font data to keep previews deterministic. To refresh the embedded fonts:
 
 ```bash
 node scripts/generate-snippet-fonts.mjs
