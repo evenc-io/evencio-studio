@@ -136,6 +136,9 @@ export function useSnippetSelection(
 	const suppressDraftAutosaveRef = useRef(false)
 	const pendingSnippetReadyRef = useRef<{ draftId: string; source: string } | null>(null)
 	const [snippetReadyDraftId, setSnippetReadyDraftId] = useState<string | null>(null)
+	// Trigger counter to ensure the readiness effect runs even when source/draftId
+	// don't change (e.g., fresh load where form already has starter source)
+	const [pendingReadyTrigger, setPendingReadyTrigger] = useState(0)
 
 	useEffect(() => {
 		if (previousEditAssetIdRef.current === editAssetId) return
@@ -335,6 +338,8 @@ export function useSnippetSelection(
 						source: defaultSnippetValues.source ?? "",
 					}
 				}
+				// Trigger readiness check even if source/draftId didn't change
+				setPendingReadyTrigger((prev) => prev + 1)
 				return true
 			}
 
@@ -375,6 +380,8 @@ export function useSnippetSelection(
 					source: asset.snippet.source ?? "",
 				}
 			}
+			// Trigger readiness check even if source/draftId didn't change
+			setPendingReadyTrigger((prev) => prev + 1)
 			return true
 		},
 		[
@@ -389,6 +396,10 @@ export function useSnippetSelection(
 		],
 	)
 
+	// Check if the pending snippet is ready (source matches what we loaded).
+	// pendingReadyTrigger ensures this runs even when source/draftId don't change
+	// (e.g., fresh load where form already contains starter source).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: pendingReadyTrigger is a trigger dependency - we intentionally re-run when it changes even though we don't read its value
 	useEffect(() => {
 		const pending = pendingSnippetReadyRef.current
 		if (!pending) return
@@ -398,7 +409,7 @@ export function useSnippetSelection(
 		if (expected !== actual) return
 		pendingSnippetReadyRef.current = null
 		setSnippetReadyDraftId(pending.draftId)
-	}, [currentDraftId, watchedSource])
+	}, [currentDraftId, watchedSource, pendingReadyTrigger])
 
 	useEffect(() => {
 		let cancelled = false
