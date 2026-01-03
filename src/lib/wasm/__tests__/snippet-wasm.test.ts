@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { analyzeSnippetInEngine } from "@/lib/engine/client"
+import { analyzeSnippetInEngine, buildSnippetComponentTreeInEngine } from "@/lib/engine/client"
 import { formatSample, measure } from "@/lib/perf"
+import {
+	buildComponentTreeFromEntries,
+	buildComponentTreeFromSource,
+} from "@/lib/snippets/component-tree"
 import { SNIPPET_EXAMPLES } from "@/lib/snippets/examples"
 import { buildSnippetInspectIndex } from "@/lib/snippets/inspect-index"
 import { scanSnippetFilesSync } from "@/lib/snippets/source/files"
@@ -11,6 +15,7 @@ import {
 	buildSnippetInspectIndexWasm,
 	hashSourceWasm,
 	scanAutoImportOffsetWasmSync,
+	scanComponentTreeWasm,
 	scanExportNamesWasmSync,
 	scanPrimaryExportNameWasmSync,
 	scanSnippetFilesWasm,
@@ -213,6 +218,56 @@ describe("snippet wasm inspect index", () => {
 	})
 })
 
+const flattenTree = (nodes: ReturnType<typeof buildComponentTreeFromEntries>, depth = 0) => {
+	const entries: string[] = []
+	for (const node of nodes) {
+		const className = node.className ? `.${node.className}` : ""
+		entries.push(`${" ".repeat(depth)}${node.name}${className}`)
+		if (node.children.length > 0) {
+			entries.push(...flattenTree(node.children, depth + 1))
+		}
+	}
+	return entries
+}
+
+describe("snippet wasm component tree", () => {
+	test("builds component tree for JSX", async () => {
+		const source = `
+      export default function Demo() {
+        return (
+          <section className="wrapper">
+            <h1>Hello</h1>
+            <>
+              <span className={'inner'} />
+            </>
+          </section>
+        )
+      }
+    `
+
+		const wasmEntries = await scanComponentTreeWasm(source)
+		expect(wasmEntries).not.toBeNull()
+		const tree = buildComponentTreeFromEntries(wasmEntries ?? [])
+		expect(flattenTree(tree)).toEqual(["section.wrapper", " h1", " Fragment", "  span.inner"])
+	})
+
+	test("perf component tree (optional)", async () => {
+		if (!process.env.PERF_WASM) return
+		const source = SNIPPET_EXAMPLES.find((example) => example.id === "event-card")?.source ?? ""
+		const sampleWasm = await measure("componentTree wasm", 100, async () => {
+			await scanComponentTreeWasm(source)
+		})
+		const sampleJs = await measure("componentTree js", 100, () => {
+			buildComponentTreeFromSource(source)
+		})
+		// eslint-disable-next-line no-console
+		console.info(formatSample(sampleWasm))
+		// eslint-disable-next-line no-console
+		console.info(formatSample(sampleJs))
+		expect(sampleWasm.durationMs).toBeGreaterThan(0)
+	})
+})
+
 describe("snippet wasm file scanner", () => {
 	test("matches JS scanner for snippet-file blocks", async () => {
 		const source = SNIPPET_TEMPLATES.multi.source
@@ -297,6 +352,16 @@ const baseChunk = `
   </div>
 `
 
+const componentTreeChunk = `
+  <Card className="card">
+    <Header />
+    <Content>
+      <Badge className="badge" />
+      <span className="text-sm" />
+    </Content>
+  </Card>
+`
+
 const buildSource = (chunk: string, count: number) => `
 export default function Demo() {
   return (
@@ -309,6 +374,8 @@ ${repeat(chunk, count)}
 
 const mediumSource = buildSource(baseChunk, 40)
 const heavySource = buildSource(baseChunk, 120)
+const componentTreeMediumSource = buildSource(componentTreeChunk, 40)
+const componentTreeHeavySource = buildSource(componentTreeChunk, 120)
 
 const autoImportHeader = `// Auto-managed imports (do not edit).
 // @import Button.tsx
@@ -447,6 +514,26 @@ const benchWorkerRoundtrip = async (label: string, iterations: number, source: s
 	return duration
 }
 
+const benchComponentTreeRoundtrip = async (label: string, iterations: number, source: string) => {
+	await buildSnippetComponentTreeInEngine(source, {
+		key: `bench-tree-warm-${label}`,
+	})
+	const start = performance.now()
+	for (let i = 0; i < iterations; i += 1) {
+		await buildSnippetComponentTreeInEngine(source, {
+			key: `bench-tree-${label}-${i}`,
+		})
+	}
+	const duration = performance.now() - start
+	// eslint-disable-next-line no-console
+	console.info(
+		`[bench] ${label} component tree worker roundtrip: ${duration.toFixed(
+			2,
+		)}ms for ${iterations} iters (${(duration / iterations).toFixed(2)}ms/iter)`,
+	)
+	return duration
+}
+
 describe("snippet wasm benchmarks", () => {
 	test("benchmarks zig vs ts (logs timings)", async () => {
 		if (!process.env.PERF_WASM) return
@@ -486,6 +573,15 @@ describe("snippet wasm benchmarks", () => {
 
 		const jsInspect = async (source: string) => {
 			buildSnippetInspectIndex(source)
+		}
+
+		const wasmComponentTree = async (source: string) => {
+			const result = await scanComponentTreeWasm(source)
+			expect(result).not.toBeNull()
+		}
+
+		const jsComponentTree = async (source: string) => {
+			buildComponentTreeFromSource(source)
 		}
 
 		const wasmStripDirectives = async (source: string) => {
@@ -574,6 +670,14 @@ describe("snippet wasm benchmarks", () => {
 		)
 		expect(mediumInspect.wasmSample.durationMs).toBeGreaterThan(0)
 
+		const mediumComponentTree = await benchPair(
+			"medium component tree",
+			12,
+			() => wasmComponentTree(componentTreeMediumSource),
+			() => jsComponentTree(componentTreeMediumSource),
+		)
+		expect(mediumComponentTree.wasmSample.durationMs).toBeGreaterThan(0)
+
 		const mediumFiles = await benchSnippetFiles("medium snippet files", 10, mediumFileSources)
 		expect(mediumFiles.wasmSample.durationMs).toBeGreaterThan(0)
 
@@ -618,6 +722,7 @@ describe("snippet wasm benchmarks", () => {
 		expect(mediumImportOffset.wasmSample.durationMs).toBeGreaterThan(0)
 
 		await benchWorkerRoundtrip("medium", 20, mediumSource)
+		await benchComponentTreeRoundtrip("medium", 12, componentTreeMediumSource)
 
 		const heavyScan = await benchPair(
 			"heavy scan",
@@ -664,6 +769,14 @@ describe("snippet wasm benchmarks", () => {
 			() => jsInspect(heavySource),
 		)
 		expect(heavyInspect.wasmSample.durationMs).toBeGreaterThan(0)
+
+		const heavyComponentTree = await benchPair(
+			"heavy component tree",
+			6,
+			() => wasmComponentTree(componentTreeHeavySource),
+			() => jsComponentTree(componentTreeHeavySource),
+		)
+		expect(heavyComponentTree.wasmSample.durationMs).toBeGreaterThan(0)
 
 		const heavyFiles = await benchSnippetFiles("heavy snippet files", 6, heavyFileSources)
 		expect(heavyFiles.wasmSample.durationMs).toBeGreaterThan(0)
@@ -712,5 +825,6 @@ describe("snippet wasm benchmarks", () => {
 		expect(largeFiles.wasmSample.durationMs).toBeGreaterThan(0)
 
 		await benchWorkerRoundtrip("heavy", 6, heavySource)
+		await benchComponentTreeRoundtrip("heavy", 6, componentTreeHeavySource)
 	})
 })

@@ -1,5 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { ChevronRight } from "lucide-react"
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -13,13 +14,18 @@ import {
 	serializeSnippetFiles,
 	useSnippetCompiler,
 } from "@/lib/snippets"
+import type { SnippetComponentTreeNode } from "@/lib/snippets/component-tree"
 import { clampSnippetViewport, SNIPPET_COMPONENT_LIMITS } from "@/lib/snippets/constraints"
 import { SNIPPET_EXAMPLES } from "@/lib/snippets/examples"
 import {
 	DEFAULT_PREVIEW_DIMENSIONS,
 	type PreviewLayerSnapshot,
+	type PreviewSourceLocation,
 } from "@/lib/snippets/preview/runtime"
+import { buildSnippetLineMapSegments } from "@/lib/snippets/source/files"
 import { SNIPPET_TEMPLATES, type SnippetTemplateId } from "@/lib/snippets/templates"
+import { SnippetComponentTreePanel } from "@/routes/-snippets/editor/components/component-tree-panel"
+import { SnippetComponentTreeResizer } from "@/routes/-snippets/editor/components/component-tree-resizer"
 import { SnippetDetailsPanel } from "@/routes/-snippets/editor/components/details-panel"
 import { SnippetEditorPanel } from "@/routes/-snippets/editor/components/editor-panel"
 import { SnippetExamplesPanel } from "@/routes/-snippets/editor/components/examples-panel"
@@ -43,6 +49,8 @@ import {
 } from "@/routes/-snippets/editor/constants"
 import { useSnippetAnalysis } from "@/routes/-snippets/editor/hooks/snippet/analysis"
 import { useSnippetComponentExports } from "@/routes/-snippets/editor/hooks/snippet/component-exports"
+import { useSnippetComponentTree } from "@/routes/-snippets/editor/hooks/snippet/component-tree"
+import { useSnippetComponentTreePanel } from "@/routes/-snippets/editor/hooks/snippet/component-tree-panel"
 import { useDerivedSnippetProps } from "@/routes/-snippets/editor/hooks/snippet/derived-props"
 import { useSnippetEditorActions } from "@/routes/-snippets/editor/hooks/snippet/editor-actions"
 import { useSnippetEditorFiles } from "@/routes/-snippets/editor/hooks/snippet/editor-files"
@@ -71,6 +79,34 @@ import {
 import { useAssetLibraryStore } from "@/stores/asset-library-store"
 import type { AssetScope, SnippetAsset } from "@/types/asset-library"
 
+const getPreviewSourceKey = (source: PreviewSourceLocation | null) => {
+	if (!source) return null
+	const fileName = source.fileName ?? ""
+	const line = source.lineNumber ?? ""
+	const column = source.columnNumber ?? ""
+	return `${String(fileName)}:${String(line)}:${String(column)}`
+}
+
+const getPreviewSourceLineKey = (source: PreviewSourceLocation | null) => {
+	if (!source) return null
+	const fileName = source.fileName ?? ""
+	const line = source.lineNumber ?? ""
+	return `${String(fileName)}:${String(line)}`
+}
+
+const isDomNodeName = (name: string) => /^[a-z]/.test(name)
+
+const findSelectableTreeNode = (
+	node: SnippetComponentTreeNode,
+): SnippetComponentTreeNode | null => {
+	if (node.source && isDomNodeName(node.name)) return node
+	for (const child of node.children) {
+		const match = findSelectableTreeNode(child)
+		if (match) return match
+	}
+	return node.source ? node : null
+}
+
 export const Route = createFileRoute("/snippets/editor")({
 	validateSearch: z.object({
 		edit: z.string().optional(),
@@ -98,6 +134,9 @@ function NewSnippetPage() {
 	const [layersSnapshot, setLayersSnapshot] = useState<PreviewLayerSnapshot | null>(null)
 	const [layersError, setLayersError] = useState<string | null>(null)
 	const [layersRequestToken, setLayersRequestToken] = useState(0)
+	const [componentTreeSelection, setComponentTreeSelection] =
+		useState<PreviewSourceLocation | null>(null)
+	const [componentTreeSelectionToken, setComponentTreeSelectionToken] = useState(0)
 	const [selectedTemplateId, setSelectedTemplateId] = useState<SnippetTemplateId>("single")
 	const [deleteTarget, setDeleteTarget] = useState<{
 		exportName: string
@@ -128,6 +167,13 @@ function NewSnippetPage() {
 	const splitContainerRef = useRef<HTMLDivElement>(null)
 	const editorPanelRef = useRef<HTMLDivElement>(null)
 	const previewContainerRef = useRef<HTMLDivElement>(null)
+	const {
+		isOpen: componentTreeOpen,
+		setIsOpen: setComponentTreeOpen,
+		width: componentTreeWidth,
+		onResizeStart: onComponentTreeResizeStart,
+	} = useSnippetComponentTreePanel({ containerRef: previewContainerRef })
+	const [componentTreeSelectedId, setComponentTreeSelectedId] = useState<string | null>(null)
 	const screenGate = useScreenGuard()
 	const form = useForm<CustomSnippetValues>({
 		resolver: zodResolver(customSnippetSchema),
@@ -170,6 +216,12 @@ function NewSnippetPage() {
 	})
 	const derivedProps = useDerivedSnippetProps({ analysis, form })
 	const parsedFiles = useMemo(() => parseSnippetFiles(watchedSource), [watchedSource])
+	const lineMapSegments = useMemo(() => {
+		if (analysis?.lineMapSegments && analysis.lineMapSegments.length > 0) {
+			return analysis.lineMapSegments
+		}
+		return buildSnippetLineMapSegments(parsedFiles.mainSource, parsedFiles.files)
+	}, [analysis?.lineMapSegments, parsedFiles.files, parsedFiles.mainSource])
 
 	const assets = useAssetLibraryStore((state) => state.assets)
 	const tags = useAssetLibraryStore((state) => state.tags)
@@ -249,6 +301,66 @@ function NewSnippetPage() {
 	const overHardComponentLimit = componentCount > SNIPPET_COMPONENT_LIMITS.hard
 	const canAddComponent = componentCount < SNIPPET_COMPONENT_LIMITS.hard
 	const resolvedEntryExport = activeComponentExport || DEFAULT_SNIPPET_EXPORT
+	const previewTreeFileId = componentDefinitionMap[resolvedEntryExport] ?? "source"
+	const previewTreeFileName = isComponentFileId(previewTreeFileId)
+		? getComponentFileName(previewTreeFileId)
+		: null
+	const previewTreeSource =
+		previewTreeFileId === "source"
+			? mainEditorSource
+			: previewTreeFileName
+				? (parsedFiles.files[previewTreeFileName] ?? "")
+				: ""
+	const { tree: componentTree, resolvePreviewSource: resolvePreviewSourceForTree } =
+		useSnippetComponentTree({
+			entryExport: resolvedEntryExport,
+			fileId: previewTreeFileId,
+			fileName: previewTreeFileName,
+			fileSource: previewTreeSource,
+			mainSource: parsedFiles.mainSource,
+			files: parsedFiles.files,
+			lineMapSegments,
+			enabled: componentTreeOpen,
+		})
+	const previewTreeLabel = previewTreeFileName ?? "Snippet.tsx"
+	const componentTreeSelectionMap = useMemo(() => {
+		if (!componentTreeOpen) return null
+		const byKey = new Map<string, string>()
+		const byLine = new Map<string, string>()
+		const visit = (node: SnippetComponentTreeNode) => {
+			const previewSource = resolvePreviewSourceForTree(node)
+			if (previewSource) {
+				const key = getPreviewSourceKey(previewSource)
+				if (key && !byKey.has(key)) {
+					byKey.set(key, node.id)
+				}
+				const lineKey = getPreviewSourceLineKey(previewSource)
+				if (lineKey && !byLine.has(lineKey)) {
+					byLine.set(lineKey, node.id)
+				}
+			}
+			for (const child of node.children) {
+				visit(child)
+			}
+		}
+		for (const node of componentTree) {
+			visit(node)
+		}
+		return { byKey, byLine }
+	}, [componentTree, componentTreeOpen, resolvePreviewSourceForTree])
+	const resolveTreeSelectionId = useCallback(
+		(source: PreviewSourceLocation | null) => {
+			if (!componentTreeSelectionMap || !source) return null
+			const key = getPreviewSourceKey(source)
+			if (key) {
+				const direct = componentTreeSelectionMap.byKey.get(key)
+				if (direct) return direct
+			}
+			const lineKey = getPreviewSourceLineKey(source)
+			return lineKey ? (componentTreeSelectionMap.byLine.get(lineKey) ?? null) : null
+		},
+		[componentTreeSelectionMap],
+	)
 	const filteredExamples = useMemo(() => {
 		if (exampleFilters.includes("all") || exampleFilters.length === 0) return SNIPPET_EXAMPLES
 		return SNIPPET_EXAMPLES.filter((example) =>
@@ -540,7 +652,7 @@ function NewSnippetPage() {
 		onPreviewInspectHover,
 		onPreviewInspectSelect,
 		onPreviewInspectContext,
-		resolvePreviewSource,
+		resolvePreviewSource: resolvePreviewSourceForInspect,
 	} = useSnippetInspect({
 		mainSource: parsedFiles.mainSource,
 		mainEditorSource,
@@ -549,7 +661,7 @@ function NewSnippetPage() {
 		isExamplePreviewActive,
 		onOpenFileForInspect: openFileForInspect,
 		inspectIndexByFileId: analysis?.inspectIndexByFileId,
-		lineMapSegments: analysis?.lineMapSegments,
+		lineMapSegments,
 		forceEnabled: layoutMode,
 	})
 	const {
@@ -563,7 +675,7 @@ function NewSnippetPage() {
 		handleInspectContextEdit,
 		handleInspectContextRemove,
 		handleInspectContextRemoveContainer,
-		handlePreviewInspectSelect,
+		handlePreviewInspectSelect: handlePreviewInspectSelectInternal,
 		handleInspectContext,
 		handleInspectEscape,
 		handleLayoutCommit,
@@ -571,7 +683,7 @@ function NewSnippetPage() {
 		getSourceForFile,
 		updateSourceForFile,
 		applyLayoutSourceForFile,
-		resolvePreviewSource,
+		resolvePreviewSource: resolvePreviewSourceForInspect,
 		onPreviewInspectSelect,
 		onPreviewInspectContext,
 		layoutMode,
@@ -714,11 +826,46 @@ function NewSnippetPage() {
 			onToggleLayers3d={() => setLayers3dOpen((prev) => !prev)}
 		/>
 	)
+	const isPreviewSelectable = Boolean(previewCompiledCode) && !isExamplePreviewing
+	const handleComponentTreeSelect = useCallback(
+		(node: SnippetComponentTreeNode) => {
+			if (!isPreviewSelectable) return
+			const targetNode = findSelectableTreeNode(node)
+			if (!targetNode) return
+			const source = resolvePreviewSourceForTree(targetNode)
+			if (!source) return
+			setInspectMode(true)
+			setComponentTreeSelectedId(targetNode.id)
+			setComponentTreeSelection(source)
+			setComponentTreeSelectionToken((prev) => prev + 1)
+		},
+		[isPreviewSelectable, resolvePreviewSourceForTree, setInspectMode],
+	)
 	const inspectEditorLabel = inspectTextEdit
 		? inspectTextEdit.fileId === "source"
 			? "Snippet.tsx"
 			: (getComponentFileName(inspectTextEdit.fileId) ?? "Component")
 		: undefined
+	const handlePreviewInspectSelect = useCallback(
+		(
+			source: PreviewSourceLocation | null,
+			meta?: {
+				reason?: "reset"
+			},
+		) => {
+			handlePreviewInspectSelectInternal(source, meta)
+			if (!componentTreeOpen) return
+			if (!source && meta?.reason === "reset") {
+				setComponentTreeSelectedId(null)
+				return
+			}
+			const nextSelected = resolveTreeSelectionId(source)
+			if (nextSelected) {
+				setComponentTreeSelectedId(nextSelected)
+			}
+		},
+		[componentTreeOpen, handlePreviewInspectSelectInternal, resolveTreeSelectionId],
+	)
 	const { onResizeStart } = useSnippetSplitView({
 		containerRef: splitContainerRef,
 		editorRef: editorPanelRef,
@@ -892,49 +1039,81 @@ function NewSnippetPage() {
 									ref={previewContainerRef}
 									className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
 								>
-									<SnippetPreview
-										compiledCode={previewCompiledCode}
-										props={previewPropsToUse}
-										tailwindCss={previewTailwindCss}
-										dimensions={previewDimensionsToUse}
-										className="h-full"
-										headerActions={previewHeaderActions}
-										inspectEnabled={inspectEnabled}
-										onInspectHover={onPreviewInspectHover}
-										onInspectSelect={handlePreviewInspectSelect}
-										onInspectContext={handleInspectContext}
-										onInspectEscape={handleInspectEscape}
-										layoutEnabled={layoutMode && !isExamplePreviewing}
-										layoutDebugEnabled={layoutDebugEnabled && layoutMode && !isExamplePreviewing}
-										layoutSnapEnabled={layoutSnapEnabled}
-										layoutSnapGrid={layoutSnapGrid}
-										onLayoutCommit={handleLayoutCommit}
-										layersEnabled={layers3dOpen}
-										layersRequestToken={layersRequestToken}
-										onLayersSnapshot={handleLayersSnapshot}
-										onLayersError={handleLayersError}
-									/>
-									{layers3dOpen && (
-										<div className="absolute inset-0 z-30">
-											<Suspense
-												fallback={
-													<div className="flex h-full items-center justify-center bg-white text-xs text-neutral-500">
-														Loading layers...
-													</div>
-												}
-											>
-												<LazySnippetLayers3DView
-													snapshot={layersSnapshot}
-													error={layersError}
-													selectedSource={selectedInspectSource}
-													onSelectSource={handlePreviewInspectSelect}
-													onRequestRefresh={requestLayersSnapshot}
-													onClose={() => setLayers3dOpen(false)}
-													className="h-full"
+									<div className="flex h-full w-full overflow-hidden">
+										{componentTreeOpen ? (
+											<>
+												<SnippetComponentTreePanel
+													fileLabel={previewTreeLabel}
+													tree={componentTree}
+													width={componentTreeWidth}
+													selectedId={componentTreeSelectedId}
+													selectionEnabled={isPreviewSelectable}
+													onSelectNode={handleComponentTreeSelect}
+													onClose={() => setComponentTreeOpen(false)}
 												/>
-											</Suspense>
+												<SnippetComponentTreeResizer onPointerDown={onComponentTreeResizeStart} />
+											</>
+										) : (
+											<button
+												type="button"
+												onClick={() => setComponentTreeOpen(true)}
+												className="group flex w-7 shrink-0 flex-col items-center justify-center border-r border-neutral-200 bg-neutral-50 text-neutral-400 hover:text-neutral-600"
+												aria-label="Show component tree"
+												title="Show component tree"
+											>
+												<ChevronRight className="h-4 w-4" />
+											</button>
+										)}
+										<div className="relative flex min-w-0 flex-1 flex-col">
+											<SnippetPreview
+												compiledCode={previewCompiledCode}
+												props={previewPropsToUse}
+												tailwindCss={previewTailwindCss}
+												dimensions={previewDimensionsToUse}
+												className="h-full"
+												headerActions={previewHeaderActions}
+												inspectEnabled={inspectEnabled}
+												onInspectHover={onPreviewInspectHover}
+												onInspectSelect={handlePreviewInspectSelect}
+												onInspectContext={handleInspectContext}
+												onInspectEscape={handleInspectEscape}
+												inspectSelectionRequest={componentTreeSelection}
+												inspectSelectionRequestToken={componentTreeSelectionToken}
+												layoutEnabled={layoutMode && !isExamplePreviewing}
+												layoutDebugEnabled={
+													layoutDebugEnabled && layoutMode && !isExamplePreviewing
+												}
+												layoutSnapEnabled={layoutSnapEnabled}
+												layoutSnapGrid={layoutSnapGrid}
+												onLayoutCommit={handleLayoutCommit}
+												layersEnabled={layers3dOpen}
+												layersRequestToken={layersRequestToken}
+												onLayersSnapshot={handleLayersSnapshot}
+												onLayersError={handleLayersError}
+											/>
+											{layers3dOpen && (
+												<div className="absolute inset-0 z-30">
+													<Suspense
+														fallback={
+															<div className="flex h-full items-center justify-center bg-white text-xs text-neutral-500">
+																Loading layers...
+															</div>
+														}
+													>
+														<LazySnippetLayers3DView
+															snapshot={layersSnapshot}
+															error={layersError}
+															selectedSource={selectedInspectSource}
+															onSelectSource={handlePreviewInspectSelect}
+															onRequestRefresh={requestLayersSnapshot}
+															onClose={() => setLayers3dOpen(false)}
+															className="h-full"
+														/>
+													</Suspense>
+												</div>
+											)}
 										</div>
-									)}
+									</div>
 								</div>
 							</section>
 						</form>

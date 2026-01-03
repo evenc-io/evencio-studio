@@ -1,6 +1,10 @@
 import type { EngineRequest, EngineResponse } from "@/lib/engine/protocol"
 import { analyzeSnippetTsx } from "@/lib/snippets/analyze-tsx"
 import { compileSnippet } from "@/lib/snippets/compiler"
+import {
+	buildComponentTreeFromSource,
+	buildSnippetComponentTree,
+} from "@/lib/snippets/component-tree"
 import { applySnippetTranslate } from "@/lib/snippets/source/layout"
 
 const send = (message: EngineResponse) => {
@@ -29,6 +33,19 @@ self.onmessage = async (event: MessageEvent<EngineRequest>) => {
 			const { source, entryExport } = data.payload
 			const result = await compileSnippet(source, entryExport)
 			send({ id: data.id, type: "compile", payload: result })
+			return
+		}
+
+		if (data.type === "component-tree") {
+			const result = await buildSnippetComponentTree(data.payload)
+			send({ id: data.id, type: "component-tree", payload: result })
+			return
+		}
+
+		if (data.type === "component-tree-js") {
+			const { source, entryExport } = data.payload
+			const result = buildComponentTreeFromSource(source, entryExport)
+			send({ id: data.id, type: "component-tree-js", payload: result })
 			return
 		}
 

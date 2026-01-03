@@ -3,6 +3,7 @@ const common = @import("snippet/common.zig");
 const tailwind = @import("snippet/tailwind.zig");
 const security = @import("snippet/security.zig");
 const inspect = @import("snippet/inspect.zig");
+const component_tree = @import("snippet/component_tree.zig");
 const hash = @import("snippet/hash.zig");
 const files = @import("snippet/files.zig");
 const headers = @import("snippet/headers.zig");
@@ -65,6 +66,24 @@ export fn scan_inspect_index(ptr: usize, len: usize, out_len_ptr: usize) usize {
 
     const source = @as([*]const u8, @ptrFromInt(ptr))[0..len];
     const out = inspect.scanInspectIndex(source) catch return 0;
+    const out_len = @min(out.len, @as(usize, std.math.maxInt(u32)));
+
+    const out_len_ptr_u32 = @as(*u32, @ptrFromInt(out_len_ptr));
+    out_len_ptr_u32.* = @intCast(out_len);
+
+    if (out_len == 0) {
+        return 0;
+    }
+
+    return @intFromPtr(out.ptr);
+}
+
+/// Builds the JSX component tree for the snippet editor.
+export fn scan_component_tree(ptr: usize, len: usize, out_len_ptr: usize) usize {
+    if (ptr == 0 or len == 0 or out_len_ptr == 0) return 0;
+
+    const source = @as([*]const u8, @ptrFromInt(ptr))[0..len];
+    const out = component_tree.scanComponentTree(source) catch return 0;
     const out_len = @min(out.len, @as(usize, std.math.maxInt(u32)));
 
     const out_len_ptr_u32 = @as(*u32, @ptrFromInt(out_len_ptr));

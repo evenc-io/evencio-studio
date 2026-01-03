@@ -1,6 +1,7 @@
 import type {
 	AnalyzeTsxResponse,
 	CompileSnippetResponse,
+	ComponentTreeResponse,
 	EngineRequest,
 	EngineResponse,
 	LayoutTranslateRequest,
@@ -8,6 +9,7 @@ import type {
 } from "@/lib/engine/protocol"
 import { analyzeSnippetTsx } from "@/lib/snippets/analyze-tsx"
 import { compileSnippet } from "@/lib/snippets/compiler"
+import { buildSnippetComponentTree } from "@/lib/snippets/component-tree"
 import { applySnippetTranslate } from "@/lib/snippets/source/layout"
 
 const isBrowser = typeof window !== "undefined" || typeof self !== "undefined"
@@ -146,6 +148,10 @@ const runInProcess = async <T extends EngineResponse>(payload: EngineRequest): P
 		const result = await analyzeSnippetTsx(payload.payload)
 		return { id: payload.id, type: "analyze", payload: result } as T
 	}
+	if (payload.type === "component-tree") {
+		const result = await buildSnippetComponentTree(payload.payload)
+		return { id: payload.id, type: "component-tree", payload: result } as T
+	}
 	if (payload.type === "layout-translate") {
 		const result = await applySnippetTranslate(payload.payload)
 		return { id: payload.id, type: "layout-translate", payload: result } as T
@@ -215,6 +221,33 @@ export const compileSnippetInEngine = async (
 
 	const response = await requestEngine<EngineResponse>(payload)
 	if (response.type !== "compile") {
+		throw new Error("Engine returned unexpected response")
+	}
+
+	return {
+		data: response.payload,
+		stale: isStale(key, version),
+	}
+}
+
+export const buildSnippetComponentTreeInEngine = async (
+	source: string,
+	options?: { entryExport?: string; key?: string },
+): Promise<{ data: ComponentTreeResponse; stale: boolean }> => {
+	const key = options?.key ?? "snippet-component-tree"
+	const version = nextVersion(key)
+	const id = `component-tree-${++requestCounter}`
+	const payload: EngineRequest = {
+		id,
+		type: "component-tree",
+		payload: {
+			source,
+			entryExport: options?.entryExport,
+		},
+	}
+
+	const response = await requestEngine<EngineResponse>(payload)
+	if (response.type !== "component-tree") {
 		throw new Error("Engine returned unexpected response")
 	}
 
