@@ -14,6 +14,7 @@ type SnippetWasmExports = {
 	scan_tailwind_candidates: (ptr: number, len: number, outLenPtr: number) => number
 	scan_security_issues: (ptr: number, len: number, outLenPtr: number) => number
 	scan_inspect_index: (ptr: number, len: number, outLenPtr: number) => number
+	scan_component_tree?: (ptr: number, len: number, outLenPtr: number) => number
 	scan_snippet_files: (ptr: number, len: number, outLenPtr: number) => number
 	hash_bytes: (ptr: number, len: number) => number
 	strip_snippet_directives?: (ptr: number, len: number, outLenPtr: number) => number
@@ -698,6 +699,94 @@ export const buildSnippetInspectIndexWasm = async (
 		}
 
 		return { version: 1, elements }
+	} finally {
+		wasm.free(inputPtr, input.length)
+		wasm.free(outLenPtr, 4)
+		if (outPtr && outLen) {
+			wasm.free(outPtr, outLen)
+		}
+	}
+}
+
+export type ComponentTreeScanEntry = {
+	id: number
+	parentId: number | null
+	startLine: number
+	startColumn: number
+	kind: "element" | "fragment"
+	name: string | null
+	className: string | null
+}
+
+export const scanComponentTreeWasm = async (
+	source: string,
+	options?: { expanded?: boolean },
+): Promise<ComponentTreeScanEntry[] | null> => {
+	const wasm = await loadSnippetWasm()
+	if (!wasm?.scan_component_tree) return null
+
+	const normalizedSource = options?.expanded ? source : expandSnippetSource(source)
+	const input = encoder.encode(normalizedSource)
+	if (input.length === 0) {
+		return []
+	}
+
+	const inputPtr = wasm.alloc(input.length)
+	const outLenPtr = wasm.alloc(4)
+	if (!inputPtr || !outLenPtr) {
+		if (inputPtr) wasm.free(inputPtr, input.length)
+		if (outLenPtr) wasm.free(outLenPtr, 4)
+		return null
+	}
+
+	let outPtr = 0
+	let outLen = 0
+	try {
+		const memoryU8 = new Uint8Array(wasm.memory.buffer)
+		memoryU8.set(input, inputPtr)
+
+		outPtr = wasm.scan_component_tree(inputPtr, input.length, outLenPtr)
+		const memoryAfter = new Uint8Array(wasm.memory.buffer)
+		const outLenView = new DataView(memoryAfter.buffer)
+		outLen = outLenView.getUint32(outLenPtr, true)
+
+		if (!outPtr || outLen === 0) {
+			return []
+		}
+
+		const output = memoryAfter.subarray(outPtr, outPtr + outLen)
+		const decoded = decoder.decode(output)
+		const lines = decoded.split("\n").filter(Boolean)
+		const entries: ComponentTreeScanEntry[] = []
+
+		for (const line of lines) {
+			if (!line.startsWith("N\t")) continue
+			const parts = line.split("\t")
+			if (parts.length < 8) continue
+			const id = Number(parts[1])
+			const parentRaw = Number(parts[2])
+			const startLine = Number(parts[3])
+			const startColumn = Number(parts[4])
+			const kind = parts[5] === "fragment" ? "fragment" : "element"
+			const name = unescapeMessage(parts[6] ?? "")
+			const className = unescapeMessage(parts[7] ?? "")
+
+			if (!Number.isFinite(id) || !Number.isFinite(startLine) || !Number.isFinite(startColumn)) {
+				continue
+			}
+
+			entries.push({
+				id,
+				parentId: Number.isFinite(parentRaw) && parentRaw >= 0 ? parentRaw : null,
+				startLine,
+				startColumn,
+				kind,
+				name: name ? name : null,
+				className: className ? className : null,
+			})
+		}
+
+		return entries
 	} finally {
 		wasm.free(inputPtr, input.length)
 		wasm.free(outLenPtr, 4)

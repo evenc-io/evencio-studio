@@ -20,6 +20,7 @@ import { Route as SettingsStorageRouteImport } from './routes/settings/storage'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings/integrations'
 import { Route as ProjectProjectIdRouteImport } from './routes/project/$projectId'
 import { Route as DocsLayoutSnappingRouteImport } from './routes/docs/layout-snapping'
+import { Route as BenchmarksWasmRouteImport } from './routes/benchmarks/wasm'
 import { Route as ProjectProjectIdIndexRouteImport } from './routes/project/$projectId/index'
 import { Route as ProjectProjectIdSlideSlideIdRouteImport } from './routes/project/$projectId/slide/$slideId'
 
@@ -78,6 +79,11 @@ const DocsLayoutSnappingRoute = DocsLayoutSnappingRouteImport.update({
   path: '/layout-snapping',
   getParentRoute: () => DocsRoute,
 } as any)
+const BenchmarksWasmRoute = BenchmarksWasmRouteImport.update({
+  id: '/benchmarks/wasm',
+  path: '/benchmarks/wasm',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProjectProjectIdIndexRoute = ProjectProjectIdIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -95,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/docs': typeof DocsRouteWithChildren
   '/library': typeof LibraryRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/benchmarks/wasm': typeof BenchmarksWasmRoute
   '/docs/layout-snapping': typeof DocsLayoutSnappingRoute
   '/project/$projectId': typeof ProjectProjectIdRouteWithChildren
   '/settings/integrations': typeof SettingsIntegrationsRoute
@@ -108,6 +115,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/library': typeof LibraryRoute
+  '/benchmarks/wasm': typeof BenchmarksWasmRoute
   '/docs/layout-snapping': typeof DocsLayoutSnappingRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/storage': typeof SettingsStorageRoute
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/docs': typeof DocsRouteWithChildren
   '/library': typeof LibraryRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/benchmarks/wasm': typeof BenchmarksWasmRoute
   '/docs/layout-snapping': typeof DocsLayoutSnappingRoute
   '/project/$projectId': typeof ProjectProjectIdRouteWithChildren
   '/settings/integrations': typeof SettingsIntegrationsRoute
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/library'
     | '/settings'
+    | '/benchmarks/wasm'
     | '/docs/layout-snapping'
     | '/project/$projectId'
     | '/settings/integrations'
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/library'
+    | '/benchmarks/wasm'
     | '/docs/layout-snapping'
     | '/settings/integrations'
     | '/settings/storage'
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/library'
     | '/settings'
+    | '/benchmarks/wasm'
     | '/docs/layout-snapping'
     | '/project/$projectId'
     | '/settings/integrations'
@@ -183,6 +195,7 @@ export interface RootRouteChildren {
   DocsRoute: typeof DocsRouteWithChildren
   LibraryRoute: typeof LibraryRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  BenchmarksWasmRoute: typeof BenchmarksWasmRoute
   ProjectProjectIdRoute: typeof ProjectProjectIdRouteWithChildren
   SnippetsEditorRoute: typeof SnippetsEditorRoute
 }
@@ -266,6 +279,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DocsLayoutSnappingRouteImport
       parentRoute: typeof DocsRoute
     }
+    '/benchmarks/wasm': {
+      id: '/benchmarks/wasm'
+      path: '/benchmarks/wasm'
+      fullPath: '/benchmarks/wasm'
+      preLoaderRoute: typeof BenchmarksWasmRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/project/$projectId/': {
       id: '/project/$projectId/'
       path: '/'
@@ -329,6 +349,7 @@ const rootRouteChildren: RootRouteChildren = {
   DocsRoute: DocsRouteWithChildren,
   LibraryRoute: LibraryRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  BenchmarksWasmRoute: BenchmarksWasmRoute,
   ProjectProjectIdRoute: ProjectProjectIdRouteWithChildren,
   SnippetsEditorRoute: SnippetsEditorRoute,
 }

@@ -1,4 +1,5 @@
 import type { CompileResult } from "@/lib/snippets/compiler"
+import type { SnippetComponentTreeNode } from "@/lib/snippets/component-tree"
 import type { SnippetInspectIndex } from "@/lib/snippets/inspect-index"
 import type { SnippetComponentExport } from "@/lib/snippets/source/derived"
 import type { SnippetLineMapSegment } from "@/lib/snippets/source/files"
@@ -26,6 +27,13 @@ export type AnalyzeTsxResponse = {
 	inspectIndexByFileId?: Record<string, SnippetInspectIndex | null>
 	lineMapSegments?: SnippetLineMapSegment[]
 }
+
+export type ComponentTreeRequest = {
+	source: string
+	entryExport?: string
+}
+
+export type ComponentTreeResponse = SnippetComponentTreeNode[]
 
 export type CompileSnippetRequest = {
 	source: string
@@ -58,6 +66,16 @@ export type EngineRequest =
 	  }
 	| {
 			id: string
+			type: "component-tree"
+			payload: ComponentTreeRequest
+	  }
+	| {
+			id: string
+			type: "component-tree-js"
+			payload: ComponentTreeRequest
+	  }
+	| {
+			id: string
 			type: "compile"
 			payload: CompileSnippetRequest
 	  }
@@ -72,6 +90,16 @@ export type EngineResponse =
 			id: string
 			type: "analyze"
 			payload: AnalyzeTsxResponse
+	  }
+	| {
+			id: string
+			type: "component-tree"
+			payload: ComponentTreeResponse
+	  }
+	| {
+			id: string
+			type: "component-tree-js"
+			payload: ComponentTreeResponse
 	  }
 	| {
 			id: string

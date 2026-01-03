@@ -19,6 +19,7 @@ GC‑free, and fast.
 - Source hashing (`hash_bytes`).
 - Snippet security scanning (imports, banned globals, dynamic calls).
 - JSX inspect indexing for preview highlighting.
+- JSX component tree scanning for the snippet editor panel.
 - Snippet file scanning (`scan_snippet_files`) for `@snippet-file` blocks, nested `@import` expansion, and line-map segments.
 
 These are deterministic, CPU‑bound kernels with tight loops — ideal for WASM.
@@ -50,39 +51,50 @@ bun run wasm:snippets
 bun run perf:wasm
 ```
 
-## Latest results (2025-12-29)
+## Dev benchmark page
+
+For browser-only timings (including real worker roundtrips), open `/benchmarks/wasm` while
+running `bun run dev`. This route is dev-only so we do not ship internal tooling in
+production builds or expose benchmark surfaces to end users.
+
+## Latest results (2026-01-03)
 
 Machine: MacBook M4 Max (36GB RAM)
 
 ```
-[bench] medium scan: wasm 2.62ms vs js 27.90ms (10.65x)
-[bench] medium hash: wasm 3.42ms vs js 6.00ms (1.75x)
-[bench] medium combined: wasm 0.81ms vs js 7.95ms (9.78x)
-[bench] medium security scan: wasm 1.46ms vs js 14.18ms (9.70x)
-[bench] medium inspect index: wasm 3.08ms vs js 9.85ms (3.20x)
-[bench] medium snippet files: wasm 0.57ms vs js 0.26ms (0.45x)
-[bench] medium strip directives: wasm 1.04ms vs js 1.92ms (1.84x)
-[bench] medium strip auto imports: wasm 0.67ms vs js 1.42ms (2.12x)
-[bench] medium export names: wasm 0.87ms vs js 1.51ms (1.74x)
-[bench] medium primary export: wasm 0.33ms vs js 0.08ms (0.25x)
-[bench] medium import offset: wasm 0.62ms vs js 2.07ms (3.32x)
-[bench] medium worker roundtrip: 19.22ms for 20 iters (0.96ms/iter)
-[bench] heavy scan: wasm 2.13ms vs js 21.67ms (10.18x)
-[bench] heavy hash: wasm 5.03ms vs js 5.19ms (1.03x)
-[bench] heavy combined: wasm 1.34ms vs js 13.18ms (9.87x)
-[bench] heavy security scan: wasm 1.21ms vs js 11.57ms (9.60x)
-[bench] heavy inspect index: wasm 2.72ms vs js 6.76ms (2.48x)
-[bench] heavy snippet files: wasm 0.26ms vs js 0.28ms (1.08x)
-[bench] heavy strip directives: wasm 0.74ms vs js 1.75ms (2.38x)
-[bench] heavy strip auto imports: wasm 0.69ms vs js 1.66ms (2.39x)
-[bench] heavy export names: wasm 0.83ms vs js 1.17ms (1.42x)
-[bench] heavy primary export: wasm 0.16ms vs js 0.03ms (0.20x)
-[bench] heavy import offset: wasm 0.46ms vs js 2.49ms (5.42x)
-[bench] large snippet files: wasm 0.24ms vs js 0.23ms (0.94x)
-[bench] heavy worker roundtrip: 9.73ms for 6 iters (1.62ms/iter)
+[bench] medium scan: wasm 2.68ms vs js 29.26ms (10.91x)
+[bench] medium hash: wasm 3.38ms vs js 4.73ms (1.40x)
+[bench] medium combined: wasm 0.77ms vs js 7.97ms (10.32x)
+[bench] medium security scan: wasm 1.58ms vs js 13.02ms (8.23x)
+[bench] medium inspect index: wasm 3.62ms vs js 15.96ms (4.41x)
+[bench] medium component tree: wasm 2.81ms vs js 3.84ms (1.37x)
+[bench] medium snippet files: wasm 0.61ms vs js 0.23ms (0.38x)
+[bench] medium strip directives: wasm 1.08ms vs js 1.35ms (1.25x)
+[bench] medium strip auto imports: wasm 0.69ms vs js 1.56ms (2.26x)
+[bench] medium export names: wasm 0.86ms vs js 1.44ms (1.68x)
+[bench] medium primary export: wasm 0.32ms vs js 0.08ms (0.25x)
+[bench] medium import offset: wasm 1.44ms vs js 2.15ms (1.50x)
+[bench] medium worker roundtrip: 17.71ms for 20 iters (0.89ms/iter)
+[bench] medium component tree worker roundtrip: 5.04ms for 12 iters (0.42ms/iter)
+[bench] heavy scan: wasm 2.14ms vs js 21.86ms (10.21x)
+[bench] heavy hash: wasm 4.75ms vs js 5.11ms (1.08x)
+[bench] heavy combined: wasm 1.40ms vs js 12.26ms (8.73x)
+[bench] heavy security scan: wasm 1.27ms vs js 11.64ms (9.18x)
+[bench] heavy inspect index: wasm 3.55ms vs js 6.83ms (1.92x)
+[bench] heavy component tree: wasm 2.43ms vs js 3.46ms (1.42x)
+[bench] heavy snippet files: wasm 0.26ms vs js 0.25ms (0.99x)
+[bench] heavy strip directives: wasm 0.72ms vs js 1.13ms (1.58x)
+[bench] heavy strip auto imports: wasm 0.65ms vs js 1.64ms (2.54x)
+[bench] heavy export names: wasm 0.80ms vs js 1.03ms (1.29x)
+[bench] heavy primary export: wasm 0.14ms vs js 0.03ms (0.18x)
+[bench] heavy import offset: wasm 0.40ms vs js 2.65ms (6.65x)
+[bench] large snippet files: wasm 0.88ms vs js 0.20ms (0.22x)
+[bench] heavy worker roundtrip: 7.53ms for 6 iters (1.25ms/iter)
+[bench] heavy component tree worker roundtrip: 6.11ms for 6 iters (1.02ms/iter)
 ```
 
 Notes:
 - Results depend on machine and workload. Re-run after major changes.
 - WASM scan is the primary win; hash is roughly parity with JS.
 - New header scanners (strip directives/import block/export names/import offset) are wins, but primary export is still faster in JS for these workloads.
+- Component tree benchmarks are now part of `bun run perf:wasm`; update this section after re-running.

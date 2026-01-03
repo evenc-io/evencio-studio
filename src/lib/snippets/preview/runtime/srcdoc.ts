@@ -113,6 +113,8 @@ export function generatePreviewSrcdoc(
       const elementSourceMap = new WeakMap();
       const elementTranslateMap = new WeakMap();
       const sourceTranslateMap = new Map();
+      const sourceElementMap = new Map();
+      const sourceElementMapByLine = new Map();
       const clearLayoutCache = () => {
         sourceTranslateMap.clear();
       };
@@ -125,6 +127,13 @@ export function generatePreviewSrcdoc(
         return String(fileName) + ":" + String(line) + ":" + String(column);
       };
 
+      const getSourceLineKey = (source) => {
+        if (!source || typeof source !== "object") return null;
+        const fileName = source.fileName ?? "";
+        const line = source.lineNumber ?? "";
+        return String(fileName) + ":" + String(line);
+      };
+
       const getStoredSourceTranslate = (source) => {
         const key = getSourceKey(source);
         if (!key) return null;
@@ -135,6 +144,65 @@ export function generatePreviewSrcdoc(
         const key = getSourceKey(source);
         if (!key || !translate) return;
         sourceTranslateMap.set(key, { x: translate.x ?? 0, y: translate.y ?? 0 });
+      };
+
+      const resetSourceElementMap = () => {
+        sourceElementMap.clear();
+        sourceElementMapByLine.clear();
+      };
+
+      const registerSourceElement = (element, source) => {
+        const key = getSourceKey(source);
+        if (!key) return;
+        const existing = sourceElementMap.get(key);
+        if (existing) {
+          existing.push(element);
+        } else {
+          sourceElementMap.set(key, [element]);
+        }
+        const lineKey = getSourceLineKey(source);
+        if (!lineKey) return;
+        const byLine = sourceElementMapByLine.get(lineKey);
+        if (byLine) {
+          byLine.push(element);
+        } else {
+          sourceElementMapByLine.set(lineKey, [element]);
+        }
+      };
+
+      const pickSourceCandidate = (candidates) => {
+        if (!candidates || candidates.length === 0) return null;
+        const container = document.getElementById("snippet-container");
+        if (!container) return candidates[0] ?? null;
+        for (const element of candidates) {
+          if (element && container.contains(element)) return element;
+        }
+        return candidates[0] ?? null;
+      };
+
+      const resolveElementFromSource = (source) => {
+        const key = getSourceKey(source);
+        if (key) {
+          const direct = pickSourceCandidate(sourceElementMap.get(key));
+          if (direct) return direct;
+        }
+        if (source && typeof source === "object") {
+          const column = source.columnNumber;
+          if (typeof column === "number") {
+            const prevKey = getSourceKey({ ...source, columnNumber: column - 1 });
+            const prevMatch = pickSourceCandidate(prevKey ? sourceElementMap.get(prevKey) : null);
+            if (prevMatch) return prevMatch;
+            const nextKey = getSourceKey({ ...source, columnNumber: column + 1 });
+            const nextMatch = pickSourceCandidate(nextKey ? sourceElementMap.get(nextKey) : null);
+            if (nextMatch) return nextMatch;
+          }
+          const lineKey = getSourceLineKey(source);
+          const lineMatch = pickSourceCandidate(
+            lineKey ? sourceElementMapByLine.get(lineKey) : null,
+          );
+          if (lineMatch) return lineMatch;
+        }
+        return null;
       };
 
       const unitlessStyles = new Set(${JSON.stringify(Array.from(UNITLESS_CSS_PROPERTIES))});
@@ -238,6 +306,7 @@ export function generatePreviewSrcdoc(
         applyProps(element, props);
         if (sourceInfo && typeof sourceInfo === "object") {
           elementSourceMap.set(element, sourceInfo);
+          registerSourceElement(element, sourceInfo);
         }
         normalizeChildren(props?.children).forEach((child) => renderNode(child, element, isSvgNode));
         parent.appendChild(element);
@@ -516,6 +585,21 @@ export function generatePreviewSrcdoc(
         inspectState.hovered = null;
         inspectState.selected = null;
         updateInspectOverlay();
+      };
+
+      const selectElementBySource = (source) => {
+        if (!source) {
+          inspectState.selected = null;
+          updateInspectOverlay();
+          sendInspectMessage("inspect-select", null);
+          return;
+        }
+        const target = resolveElementFromSource(source);
+        if (!target) return;
+        inspectState.selected = target;
+        inspectState.hovered = null;
+        updateInspectOverlay();
+        sendInspectMessage("inspect-select", target);
       };
 
       const setInspectEnabled = (enabled) => {
@@ -1568,6 +1652,7 @@ export function generatePreviewSrcdoc(
           }
           const container = document.getElementById('snippet-container');
           if (!container) return;
+          resetSourceElementMap();
           container.innerHTML = "";
           const props = normalizeProps(nextProps);
           const output = typeof SnippetComponent === "function"
@@ -1603,6 +1688,10 @@ export function generatePreviewSrcdoc(
           const nextScale = typeof data.scale === "number" ? data.scale : 1;
           setInspectScale(nextScale);
           snapState.scaleForSnap = inspectScale;
+          return;
+        }
+        if (data.type === "inspect-select-source") {
+          selectElementBySource(data.source ?? null);
           return;
         }
         if (data.type === "layout-toggle") {

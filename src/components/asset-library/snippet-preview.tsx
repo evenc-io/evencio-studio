@@ -52,6 +52,10 @@ export interface SnippetPreviewProps {
 	}) => void
 	/** Called when the preview reports escape while inspecting */
 	onInspectEscape?: () => void
+	/** Request selecting a source location in the preview */
+	inspectSelectionRequest?: PreviewSourceLocation | null
+	/** Triggers sending a new inspect selection request */
+	inspectSelectionRequestToken?: number
 	/** Enable layers snapshot reporting */
 	layersEnabled?: boolean
 	/** Triggers a fresh layers snapshot request */
@@ -90,6 +94,8 @@ export function SnippetPreview({
 	onInspectSelect,
 	onInspectContext,
 	onInspectEscape,
+	inspectSelectionRequest = null,
+	inspectSelectionRequestToken = 0,
 	layersEnabled = false,
 	layersRequestToken = 0,
 	onLayersSnapshot,
@@ -117,6 +123,7 @@ export function SnippetPreview({
 	const onInspectSelectRef = useRef(onInspectSelect)
 	const onInspectContextRef = useRef(onInspectContext)
 	const onInspectEscapeRef = useRef(onInspectEscape)
+	const pendingInspectSelectionRef = useRef<PreviewSourceLocation | null>(null)
 	const onRenderSuccessRef = useRef(onRenderSuccess)
 	const onRenderErrorRef = useRef(onRenderError)
 	const onLayersSnapshotRef = useRef(onLayersSnapshot)
@@ -187,6 +194,16 @@ export function SnippetPreview({
 						{ type: "inspect-scale", scale: scaleRef.current },
 						"*",
 					)
+					if (pendingInspectSelectionRef.current) {
+						iframeRef.current?.contentWindow?.postMessage(
+							{
+								type: "inspect-select-source",
+								source: pendingInspectSelectionRef.current ?? null,
+							},
+							"*",
+						)
+						pendingInspectSelectionRef.current = null
+					}
 					if (layersEnabledRef.current) {
 						iframeRef.current?.contentWindow?.postMessage(
 							{ type: "layers-toggle", enabled: true },
@@ -379,6 +396,19 @@ export function SnippetPreview({
 			"*",
 		)
 	}, [inspectEnabled, status])
+
+	useEffect(() => {
+		if (!inspectSelectionRequestToken) return
+		const iframe = iframeRef.current
+		if (!iframe?.contentWindow || !iframeReadyRef.current) {
+			pendingInspectSelectionRef.current = inspectSelectionRequest ?? null
+			return
+		}
+		iframe.contentWindow.postMessage(
+			{ type: "inspect-select-source", source: inspectSelectionRequest ?? null },
+			"*",
+		)
+	}, [inspectSelectionRequest, inspectSelectionRequestToken])
 
 	useEffect(() => {
 		const iframe = iframeRef.current
