@@ -31,6 +31,11 @@ type SourceLocation = {
 	end: { line: number; column: number }
 }
 
+type RootParseResult = {
+	roots: Record<string, unknown>[]
+	parseFailed: boolean
+}
+
 const isFunctionNode = (node: unknown) =>
 	isNodeType(node, "FunctionDeclaration") ||
 	isNodeType(node, "FunctionExpression") ||
@@ -177,6 +182,28 @@ const resolveComponentRoots = (componentNode: unknown): Record<string, unknown>[
 	return roots
 }
 
+const getComponentRootsFromSource = (source: string, entryExport?: string): RootParseResult => {
+	if (!source || !source.trim()) return { roots: [], parseFailed: false }
+	let ast: ReturnType<typeof parse> | null = null
+	try {
+		ast = parse(source, {
+			sourceType: "module",
+			plugins: ["typescript", "jsx"],
+			errorRecovery: true,
+			allowReturnOutsideFunction: true,
+		})
+	} catch {
+		return { roots: [], parseFailed: true }
+	}
+
+	const program = ast.program as { body: unknown[] }
+	const functionMap = buildFunctionMap(program)
+	const exportName =
+		entryExport && entryExport.trim().length > 0 ? entryExport : DEFAULT_SNIPPET_EXPORT
+	const componentNode = getExportedFunction(program, exportName, functionMap)
+	return { roots: resolveComponentRoots(componentNode), parseFailed: false }
+}
+
 const buildTreeNode = (node: Record<string, unknown>, path: string): SnippetComponentTreeNode => {
 	const isFragment = node.type === "JSXFragment"
 	const name = isFragment ? "Fragment" : (getJsxElementName(node) ?? "Unknown")
@@ -214,32 +241,75 @@ const buildTreeNode = (node: Record<string, unknown>, path: string): SnippetComp
 	return { id: path, name, className, source, children }
 }
 
+const buildComponentTreeFromRoots = (roots: Record<string, unknown>[]) =>
+	roots.map((root, index) => buildTreeNode(root, String(index)))
+
+const getRootLocationKey = (node: Record<string, unknown>): string | null => {
+	const loc = node.loc as SourceLocation | null | undefined
+	if (!loc) return null
+	const line = loc.start.line
+	const column = loc.start.column
+	if (!Number.isFinite(line) || !Number.isFinite(column)) return null
+	return `${String(line)}:${String(column)}`
+}
+
+const filterEntriesForRoots = (
+	entries: ComponentTreeEntry[],
+	roots: Record<string, unknown>[],
+): ComponentTreeEntry[] | null => {
+	if (!entries || entries.length === 0) return null
+	const rootKeys = new Set<string>()
+	for (const root of roots) {
+		const key = getRootLocationKey(root)
+		if (key) rootKeys.add(key)
+	}
+	if (rootKeys.size === 0) return null
+
+	const rootIds = new Set<number>()
+	const children = new Map<number, number[]>()
+	for (const entry of entries) {
+		if (rootKeys.has(`${entry.startLine}:${entry.startColumn}`)) {
+			rootIds.add(entry.id)
+		}
+		if (entry.parentId !== null && entry.parentId >= 0) {
+			const list = children.get(entry.parentId)
+			if (list) {
+				list.push(entry.id)
+			} else {
+				children.set(entry.parentId, [entry.id])
+			}
+		}
+	}
+
+	if (rootIds.size === 0) return null
+
+	const includeIds = new Set<number>()
+	const stack = [...rootIds]
+	while (stack.length > 0) {
+		const id = stack.pop()
+		if (id === undefined || includeIds.has(id)) continue
+		includeIds.add(id)
+		const next = children.get(id)
+		if (next) {
+			for (const childId of next) {
+				if (!includeIds.has(childId)) {
+					stack.push(childId)
+				}
+			}
+		}
+	}
+
+	return entries.filter((entry) => includeIds.has(entry.id))
+}
+
 export const buildComponentTreeFromSource = (
 	source: string,
 	entryExport?: string,
 ): SnippetComponentTreeNode[] => {
-	if (!source || !source.trim()) return []
-	let ast: ReturnType<typeof parse> | null = null
-	try {
-		ast = parse(source, {
-			sourceType: "module",
-			plugins: ["typescript", "jsx"],
-			errorRecovery: true,
-			allowReturnOutsideFunction: true,
-		})
-	} catch {
-		return []
-	}
-
-	const program = ast.program as { body: unknown[] }
-	const functionMap = buildFunctionMap(program)
-	const exportName =
-		entryExport && entryExport.trim().length > 0 ? entryExport : DEFAULT_SNIPPET_EXPORT
-	const componentNode = getExportedFunction(program, exportName, functionMap)
-	const roots = resolveComponentRoots(componentNode)
+	const { roots } = getComponentRootsFromSource(source, entryExport)
 	if (roots.length === 0) return []
 
-	return roots.map((root, index) => buildTreeNode(root, String(index)))
+	return buildComponentTreeFromRoots(roots)
 }
 
 export const buildComponentTreeFromEntries = (
@@ -294,12 +364,22 @@ export const buildSnippetComponentTree = async ({
 	entryExport?: string
 }): Promise<SnippetComponentTreeNode[]> => {
 	if (!source || !source.trim()) return []
+	const { roots, parseFailed } = getComponentRootsFromSource(source, entryExport)
 	if (isBrowserRuntime()) {
 		const hasDirectives = /^\s*\/\/\s*@snippet-file/m.test(source)
 		const entries = await scanComponentTreeWasm(source, { expanded: !hasDirectives })
 		if (entries) {
-			return buildComponentTreeFromEntries(entries)
+			if (parseFailed) {
+				return buildComponentTreeFromEntries(entries)
+			}
+			if (roots.length === 0) return []
+			const filtered = filterEntriesForRoots(entries, roots)
+			if (filtered && filtered.length > 0) {
+				return buildComponentTreeFromEntries(filtered)
+			}
+			return buildComponentTreeFromRoots(roots)
 		}
 	}
-	return buildComponentTreeFromSource(source, entryExport)
+	if (parseFailed || roots.length === 0) return []
+	return buildComponentTreeFromRoots(roots)
 }
