@@ -1215,6 +1215,7 @@ function NewSnippetPage() {
 												fitMode={previewFitMode}
 												className="h-full"
 												headerActions={previewHeaderActions}
+												cameraAvailable={previewCameraAvailable}
 												cameraEnabled={previewCameraAvailable && previewCameraEnabled}
 												cameraResetToken={previewCameraResetToken}
 												onCameraHoverChange={setIsPreviewHovering}

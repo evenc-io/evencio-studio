@@ -40,6 +40,8 @@ export interface SnippetPreviewProps {
 	className?: string
 	/** Optional actions rendered in the preview header */
 	headerActions?: ReactNode
+	/** Whether camera transforms should apply for this preview mode */
+	cameraAvailable?: boolean
 	/** Enable camera mode (pan/zoom) for the preview viewport */
 	cameraEnabled?: boolean
 	/** Triggers resetting the camera pan/zoom back to the default view */
@@ -176,6 +178,7 @@ export function SnippetPreview({
 	onRenderError,
 	className,
 	headerActions,
+	cameraAvailable = true,
 	cameraEnabled = false,
 	cameraResetToken = 0,
 	onCameraHoverChange,
@@ -198,6 +201,7 @@ export function SnippetPreview({
 	suppressNextRenderToken = 0,
 	onImportAssetRemove,
 }: SnippetPreviewProps) {
+	const cameraModeEnabled = cameraAvailable && cameraEnabled
 	const iframeRef = useRef<HTMLIFrameElement>(null)
 	const containerRef = useRef<HTMLDivElement>(null)
 	const viewportRef = useRef<HTMLDivElement>(null)
@@ -226,7 +230,7 @@ export function SnippetPreview({
 	const onLayoutCommitRef = useRef(onLayoutCommit)
 	const onImportAssetRemoveRef = useRef(onImportAssetRemove)
 	const layoutEnabledRef = useRef(Boolean(layoutEnabled))
-	const cameraEnabledRef = useRef(Boolean(cameraEnabled))
+	const cameraModeEnabledRef = useRef(cameraModeEnabled)
 	const onCameraHoverChangeRef = useRef(onCameraHoverChange)
 	const lastCameraResetTokenRef = useRef(cameraResetToken)
 	const [camera, setCamera] = useState<PreviewCameraState>(() => ({ ...CAMERA_DEFAULT_STATE }))
@@ -326,7 +330,7 @@ export function SnippetPreview({
 	}, [cameraResetToken])
 
 	useEffect(() => {
-		if (cameraEnabled) return
+		if (cameraModeEnabled) return
 		cameraPanRef.current = null
 		setIsCameraPanning(false)
 		if (cameraAnimationFrameRef.current !== null) {
@@ -334,7 +338,7 @@ export function SnippetPreview({
 			cameraAnimationFrameRef.current = null
 		}
 		pendingCameraRef.current = null
-	}, [cameraEnabled])
+	}, [cameraModeEnabled])
 
 	useEffect(() => {
 		return () => {
@@ -368,9 +372,10 @@ export function SnippetPreview({
 		traceEnabledRef.current = Boolean(layoutDebugEnabled)
 		layoutSnapEnabledRef.current = Boolean(layoutSnapEnabled)
 		layoutSnapGridRef.current = layoutSnapGrid
-		cameraEnabledRef.current = Boolean(cameraEnabled)
+		cameraModeEnabledRef.current = Boolean(cameraAvailable) && Boolean(cameraEnabled)
 		onCameraHoverChangeRef.current = onCameraHoverChange
 	}, [
+		cameraAvailable,
 		cameraEnabled,
 		onCameraHoverChange,
 		onInspectHover,
@@ -773,7 +778,7 @@ export function SnippetPreview({
 		if (!viewport) return
 
 		const handleWheel = (event: WheelEvent) => {
-			if (!cameraEnabledRef.current) return
+			if (!cameraModeEnabledRef.current) return
 			event.preventDefault()
 
 			const rect = viewport.getBoundingClientRect()
@@ -832,7 +837,8 @@ export function SnippetPreview({
 		return Math.min(1, Math.max(0.01, nextScale))
 	}, [containerSize.height, containerSize.width, dimensions.height, dimensions.width, fitMode])
 
-	const previewScale = scale * camera.scale
+	const appliedCamera = cameraAvailable ? camera : CAMERA_DEFAULT_STATE
+	const previewScale = scale * appliedCamera.scale
 	const baseTranslate = useMemo(() => {
 		if (fitMode !== "contain") return { x: 0, y: 0 }
 		const availableWidth = containerSize.width
@@ -900,7 +906,7 @@ export function SnippetPreview({
 
 	const handleCameraPointerDown = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
-			if (!cameraEnabled) return
+			if (!cameraModeEnabled) return
 			if (event.pointerType === "mouse" && event.button !== 0) return
 			const target = event.currentTarget
 			target.setPointerCapture(event.pointerId)
@@ -913,12 +919,12 @@ export function SnippetPreview({
 			setIsCameraPanning(true)
 			event.preventDefault()
 		},
-		[cameraEnabled, setCameraHovered],
+		[cameraModeEnabled, setCameraHovered],
 	)
 
 	const handleCameraPointerMove = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
-			if (!cameraEnabled) return
+			if (!cameraModeEnabled) return
 			const pan = cameraPanRef.current
 			if (!pan || pan.pointerId !== event.pointerId) return
 
@@ -934,12 +940,12 @@ export function SnippetPreview({
 				translateY: prev.translateY + dy,
 			}))
 		},
-		[cameraEnabled, scheduleCameraUpdate],
+		[cameraModeEnabled, scheduleCameraUpdate],
 	)
 
 	const handleCameraPointerEnd = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
-			if (!cameraEnabled) return
+			if (!cameraModeEnabled) return
 			const pan = cameraPanRef.current
 			if (!pan || pan.pointerId !== event.pointerId) return
 
@@ -953,18 +959,18 @@ export function SnippetPreview({
 			setCameraHovered(viewport ? viewport.matches(":hover") : false)
 			event.preventDefault()
 		},
-		[cameraEnabled, setCameraHovered],
+		[cameraModeEnabled, setCameraHovered],
 	)
 
 	const previewHint = useMemo(() => {
-		if (cameraEnabled) return "Drag to pan · Scroll/pinch to zoom"
+		if (cameraModeEnabled) return "Drag to pan · Scroll/pinch to zoom"
 		if (layoutEnabled && inspectEnabled) {
 			return "Drag to reposition or resize · Right-click to edit"
 		}
 		if (layoutEnabled) return "Drag to reposition or resize"
 		if (inspectEnabled) return "Right-click to edit"
 		return null
-	}, [cameraEnabled, inspectEnabled, layoutEnabled])
+	}, [cameraModeEnabled, inspectEnabled, layoutEnabled])
 
 	useEffect(() => {
 		const iframe = iframeRef.current
@@ -1055,7 +1061,7 @@ export function SnippetPreview({
 						<div
 							className="absolute left-0 top-0"
 							style={{
-								transform: `translate3d(${baseTranslate.x + camera.translateX}px, ${baseTranslate.y + camera.translateY}px, 0)`,
+								transform: `translate3d(${baseTranslate.x + appliedCamera.translateX}px, ${baseTranslate.y + appliedCamera.translateY}px, 0)`,
 							}}
 						>
 							<div
@@ -1104,14 +1110,14 @@ export function SnippetPreview({
 											width: dimensions.width,
 											height: dimensions.height,
 											border: "none",
-											pointerEvents: cameraEnabled ? "none" : "auto",
+											pointerEvents: cameraModeEnabled ? "none" : "auto",
 										}}
 									/>
 								)}
 							</div>
 						</div>
 
-						{cameraEnabled && (
+						{cameraModeEnabled && (
 							<div
 								aria-hidden="true"
 								className={cn(
