@@ -12,6 +12,44 @@ export type SnippetTemplate = {
 }
 
 const MULTI_COMPONENT_FILES: Record<string, string> = {
+	"__imports.assets.tsx": `type EvencioAssetProps = {
+  className?: string
+  style?: any
+}
+
+const mergeClassName = (base: string, extra?: string) =>
+  extra ? base + " " + extra : base
+
+const EvencioMark = ({ className, style }: EvencioAssetProps) => (
+  <svg
+    data-snippet-inspect="ignore"
+    viewBox="0 0 100 100"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    width={80}
+    height={80}
+    aria-hidden="true"
+    className={mergeClassName("shrink-0 self-center", className)}
+    style={style}
+  >
+    <path d="M15 10H85V35H40V65H85V90H15V10Z" className="fill-neutral-950" />
+    <rect x="65" y="40" width="20" height="20" fill="#0044FF" />
+  </svg>
+)
+
+const EvencioLockup = ({ className, style }: EvencioAssetProps) => (
+  <span
+    data-snippet-inspect="ignore"
+    className={mergeClassName("inline-flex items-center gap-2 leading-none", className)}
+    style={style}
+  >
+    <EvencioMark style={{ width: 32, height: 32 }} />
+    <span className="font-unbounded text-[24px] font-normal tracking-[-0.02em] uppercase leading-none whitespace-nowrap text-neutral-950">
+      EVENCIO
+    </span>
+  </span>
+)
+`,
 	"EventBadge.tsx": `export const EventBadge = ({ badgeLabel = "On sale" }) => (
   <span className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.24em] text-neutral-500">
     {badgeLabel}
@@ -33,13 +71,14 @@ const MULTI_COMPONENT_FILES: Record<string, string> = {
 `,
 }
 
-const MULTI_COMPONENT_MAIN_SOURCE = `// @import EventBadge.tsx
+const MULTI_COMPONENT_MAIN_SOURCE = `// @import __imports.assets.tsx
+// @import EventBadge.tsx
 // @import EventDetail.tsx
 
 export default function EvencioMultiComponentSnippet({
   eyebrow = "Event Spotlight",
   title = "Cityline Sessions",
-  subtitle = "Multiple components stitched into one layout.",
+  subtitle = "Multiple components stitched into one layout with SVG asset components.",
   date = "Saturday, Mar 16",
   time = "20:00 - 01:30",
   venue = "Tobacco Dock",
@@ -52,7 +91,10 @@ export default function EvencioMultiComponentSnippet({
         <div className="flex h-full flex-col px-12 py-10">
           <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.32em] text-neutral-400">
             <span className="font-mono">{eyebrow}</span>
-            <span className="text-neutral-500">Evencio</span>
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-neutral-500">
+              <EvencioMark style={{ width: 14, height: 14 }} />
+              <span>Assets file</span>
+            </div>
           </div>
 
           <div className="mt-8">
@@ -72,7 +114,17 @@ export default function EvencioMultiComponentSnippet({
             </div>
           </div>
 
-          <div className="mt-auto pt-8 text-xs text-neutral-400">
+          <div className="mt-8 flex items-center justify-between gap-4 rounded-md border border-neutral-200 bg-neutral-50 px-5 py-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.3em] text-neutral-400">
+                SVG asset components
+              </p>
+              <p className="mt-2 text-xs text-neutral-500">Defined in the assets file.</p>
+            </div>
+            <EvencioLockup className="origin-right scale-[0.7]" />
+          </div>
+
+          <div className="mt-auto pt-6 text-xs text-neutral-400">
             Powered by Evencio - Swiss International 2026
           </div>
         </div>
@@ -115,7 +167,7 @@ export const SNIPPET_TEMPLATES: Record<SnippetTemplateId, SnippetTemplate> = {
 	multi: {
 		id: "multi",
 		label: "Multi-component",
-		description: "Main component plus helper components for structure.",
+		description: "Main component plus helpers with SVG asset components.",
 		source: MULTI_COMPONENT_SNIPPET_SOURCE,
 	},
 	"layout-policy": {
