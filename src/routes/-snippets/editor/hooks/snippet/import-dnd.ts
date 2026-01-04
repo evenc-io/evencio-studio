@@ -500,6 +500,11 @@ export const useSnippetImportDnd = ({
 					x: pending.x,
 					y: pending.y,
 				})
+				return
+			}
+
+			if (data.type === "render-error") {
+				pendingPlacementRef.current = null
 			}
 		}
 
