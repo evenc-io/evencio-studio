@@ -92,7 +92,12 @@ export default function EvencioMultiComponentSnippet({
           <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.32em] text-neutral-400">
             <span className="font-mono">{eyebrow}</span>
             <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-neutral-500">
-              <EvencioMark style={{ width: 14, height: 14 }} />
+              <div
+                className="inline-flex h-fit w-fit shrink-0 self-start justify-self-start"
+                data-snippet-asset="evencio-mark"
+              >
+                <EvencioMark style={{ width: 14, height: 14 }} />
+              </div>
               <span>Assets file</span>
             </div>
           </div>
@@ -121,7 +126,12 @@ export default function EvencioMultiComponentSnippet({
               </p>
               <p className="mt-2 text-xs text-neutral-500">Defined in the assets file.</p>
             </div>
-            <EvencioLockup className="origin-right scale-[0.7]" />
+            <div
+              className="inline-flex h-fit w-fit shrink-0 self-start justify-self-start"
+              data-snippet-asset="evencio-lockup"
+            >
+              <EvencioLockup className="origin-right scale-[0.7]" />
+            </div>
           </div>
 
           <div className="mt-auto pt-6 text-xs text-neutral-400">
