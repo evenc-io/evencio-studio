@@ -91,7 +91,7 @@ interface UseSnippetSelectionOptions {
 interface UseSnippetSelectionResult {
 	autoCompile: boolean
 	handleSnippetSelect: (snippetId: string | null) => void
-	cancelPendingSelection: () => void
+	cancelPendingSelection: (options?: { preserveDraftAutosave?: boolean }) => void
 	resetNewSnippet: () => void
 }
 
@@ -510,20 +510,25 @@ export function useSnippetSelection(
 		[buildDraftRecord, currentDraftId, navigate, saveDraft, setError],
 	)
 
-	const cancelPendingSelection = useCallback(() => {
-		invalidateSelectionToken(selectionTokenRef)
-		pendingSnippetReadyRef.current = null
-		setSnippetReadyDraftId(currentDraftId)
-		if (!isEditing) {
-			newDraftAppliedRef.current = true
-		} else if (editAssetId) {
-			editAppliedRef.current = editAssetId
-		}
-		if (draftAutosaveTimerRef.current) {
-			clearTimeout(draftAutosaveTimerRef.current)
-			draftAutosaveTimerRef.current = null
-		}
-	}, [currentDraftId, editAssetId, isEditing])
+	const cancelPendingSelection = useCallback(
+		(options?: { preserveDraftAutosave?: boolean }) => {
+			const preserveDraftAutosave = options?.preserveDraftAutosave === true
+
+			invalidateSelectionToken(selectionTokenRef)
+			pendingSnippetReadyRef.current = null
+			setSnippetReadyDraftId(currentDraftId)
+			if (!isEditing) {
+				newDraftAppliedRef.current = true
+			} else if (editAssetId) {
+				editAppliedRef.current = editAssetId
+			}
+			if (!preserveDraftAutosave && draftAutosaveTimerRef.current) {
+				clearTimeout(draftAutosaveTimerRef.current)
+				draftAutosaveTimerRef.current = null
+			}
+		},
+		[currentDraftId, editAssetId, isEditing],
+	)
 
 	return {
 		autoCompile: snippetReadyDraftId === currentDraftId,

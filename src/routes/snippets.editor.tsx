@@ -1039,7 +1039,7 @@ function NewSnippetPage() {
 	const handleImportSnippet = useCallback(
 		(value: string) => {
 			templateAppliedRef.current = true
-			cancelPendingSelection()
+			cancelPendingSelection({ preserveDraftAutosave: true })
 			return handleImportSnippetInternal(value)
 		},
 		[cancelPendingSelection, handleImportSnippetInternal],
