@@ -97,6 +97,7 @@ interface MonacoEditorProps {
 	onChange?: (value: string) => void
 	language?: MonacoLanguage
 	readOnly?: boolean
+	deferExternalUpdatesWhileFocused?: boolean
 	height?: string | number
 	className?: string
 	placeholder?: string
@@ -117,6 +118,7 @@ function MonacoEditor({
 	onChange,
 	language = "typescript",
 	readOnly = false,
+	deferExternalUpdatesWhileFocused = true,
 	height = 300,
 	className,
 	placeholder,
@@ -240,14 +242,14 @@ function MonacoEditor({
 	useEffect(() => {
 		if (value === lastValueRef.current) return
 		const editor = editorRef.current
-		if (editor?.hasTextFocus()) {
+		if (deferExternalUpdatesWhileFocused && editor?.hasTextFocus()) {
 			pendingValueRef.current = value
 			return
 		}
 		lastValueRef.current = value
 		pendingValueRef.current = null
 		setModelValue(value)
-	}, [value])
+	}, [deferExternalUpdatesWhileFocused, value])
 
 	useEffect(() => {
 		const monaco = monacoRef.current

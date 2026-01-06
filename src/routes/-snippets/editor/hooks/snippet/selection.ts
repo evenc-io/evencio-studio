@@ -1,6 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react"
 import { useCallback, useEffect, useRef, useState } from "react"
-import type { UseFormReturn } from "react-hook-form"
+import { type UseFormReturn, useFormState } from "react-hook-form"
 import { DEFAULT_SNIPPET_EXPORT } from "@/lib/snippets"
 import {
 	DEFAULT_PREVIEW_DIMENSIONS,
@@ -131,6 +131,10 @@ export function useSnippetSelection(
 		setComponentTreeSelection,
 		setComponentTreeSelectionToken,
 	} = options
+
+	const { isDirty } = useFormState({ control: form.control })
+	const isDirtyRef = useRef(isDirty)
+	isDirtyRef.current = isDirty
 
 	const editAppliedRef = useRef<string | null>(null)
 	const previousEditAssetIdRef = useRef<string | null>(null)
@@ -457,10 +461,10 @@ export function useSnippetSelection(
 		}
 		draftAutosaveTimerRef.current = setTimeout(() => {
 			draftAutosaveTimerRef.current = null
-			if (!form.formState.isDirty) return
+			if (!isDirtyRef.current) return
 			void saveDraft(buildDraftRecord(currentDraftId))
 		}, 1200)
-	}, [buildDraftRecord, currentDraftId, form, saveDraft])
+	}, [buildDraftRecord, currentDraftId, saveDraft])
 
 	useEffect(() => {
 		const subscription = form.watch(() => {

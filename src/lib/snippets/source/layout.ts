@@ -16,6 +16,7 @@ export type SnippetLayoutTranslateResult = {
 	source: string
 	changed: boolean
 	reason?: string
+	notice?: string
 }
 
 type SourceLocation = {
@@ -91,25 +92,133 @@ const getAlignmentClassY = (alignY?: "top" | "center" | "bottom" | null) => {
 	return null
 }
 
-const normalizeClassName = (
+const splitVariants = (value: string) => {
+	let bracketDepth = 0
+	let lastColon = -1
+	for (let index = 0; index < value.length; index += 1) {
+		const char = value[index]
+		if (char === "[") bracketDepth += 1
+		if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1)
+		if (char === ":" && bracketDepth === 0) lastColon = index
+	}
+	return lastColon >= 0 ? value.slice(lastColon + 1) : value
+}
+
+const stripImportantPrefix = (value: string) => {
+	let next = value
+	while (next.startsWith("!")) {
+		next = next.slice(1)
+	}
+	return next
+}
+
+const stripNegativePrefix = (value: string) => (value.startsWith("-") ? value.slice(1) : value)
+
+const isTranslateClass = (token: string) => {
+	const utility = stripImportantPrefix(splitVariants(token))
+	const base = stripNegativePrefix(utility)
+	if (base.startsWith("translate-x-")) return true
+	if (base.startsWith("translate-y-")) return true
+	if (base.startsWith("translate-z-")) return false
+	return base.startsWith("translate-")
+}
+
+const isWidthClass = (token: string) => {
+	const utility = stripImportantPrefix(splitVariants(token))
+	const base = stripNegativePrefix(utility)
+	return (
+		base.startsWith("w-") ||
+		base.startsWith("min-w-") ||
+		base.startsWith("max-w-") ||
+		base.startsWith("size-")
+	)
+}
+
+const isHeightClass = (token: string) => {
+	const utility = stripImportantPrefix(splitVariants(token))
+	const base = stripNegativePrefix(utility)
+	return (
+		base.startsWith("h-") ||
+		base.startsWith("min-h-") ||
+		base.startsWith("max-h-") ||
+		base.startsWith("size-")
+	)
+}
+
+const isAlignmentXClass = (token: string) => {
+	const utility = stripImportantPrefix(splitVariants(token))
+	return ALIGNMENT_X_CLASSES.has(utility)
+}
+
+const isAlignmentYClass = (token: string) => {
+	const utility = stripImportantPrefix(splitVariants(token))
+	return ALIGNMENT_Y_CLASSES.has(utility)
+}
+
+const formatArbitraryClass = (prefix: string, value: string) => `${prefix}-[${value}]`
+
+const buildTranslateClasses = (x: number, y: number) => {
+	const classes: string[] = []
+	if (x !== 0) {
+		classes.push(formatArbitraryClass("translate-x", `${formatNumber(x)}px`))
+	}
+	if (y !== 0) {
+		classes.push(formatArbitraryClass("translate-y", `${formatNumber(y)}px`))
+	}
+	return classes
+}
+
+const buildSizeClasses = (widthValue: string | null, heightValue: string | null) => {
+	const classes: string[] = []
+	if (widthValue) {
+		classes.push(formatArbitraryClass("w", widthValue))
+	}
+	if (heightValue) {
+		classes.push(formatArbitraryClass("h", heightValue))
+	}
+	return classes
+}
+
+const normalizeTailwindClassName = (
 	value: string,
-	updateX: boolean,
-	updateY: boolean,
-	alignClassX: string | null,
-	alignClassY: string | null,
+	options: {
+		updateAlignX: boolean
+		updateAlignY: boolean
+		alignClassX: string | null
+		alignClassY: string | null
+		updateTranslate: boolean
+		translateClasses: string[]
+		updateWidth: boolean
+		updateHeight: boolean
+		sizeClasses: string[]
+	},
 ) => {
 	const tokens = value.split(/\s+/).filter(Boolean)
-	const next = tokens.filter((token) => {
-		if (updateX && ALIGNMENT_X_CLASSES.has(token)) return false
-		if (updateY && ALIGNMENT_Y_CLASSES.has(token)) return false
-		return true
-	})
-	if (alignClassX) {
-		next.push(alignClassX)
+	const next: string[] = []
+	const seen = new Set<string>()
+
+	const push = (token: string) => {
+		if (!token) return
+		if (seen.has(token)) return
+		seen.add(token)
+		next.push(token)
 	}
-	if (alignClassY) {
-		next.push(alignClassY)
+
+	for (const token of tokens) {
+		if (options.updateAlignX && isAlignmentXClass(token)) continue
+		if (options.updateAlignY && isAlignmentYClass(token)) continue
+		if (options.updateTranslate && isTranslateClass(token)) continue
+		if (options.updateWidth && isWidthClass(token)) continue
+		if (options.updateHeight && isHeightClass(token)) continue
+		push(token)
 	}
+
+	if (options.alignClassX) push(options.alignClassX)
+	if (options.alignClassY) push(options.alignClassY)
+
+	for (const token of options.translateClasses) push(token)
+	for (const token of options.sizeClasses) push(token)
+
 	return next.join(" ")
 }
 
@@ -278,6 +387,7 @@ type SourceUpdate = {
 type ClassNameUpdateResult = {
 	update: SourceUpdate | null
 	applied: boolean
+	notice?: string
 }
 
 const readStaticClassNameValue = (valueNode: Record<string, unknown> | null | undefined) => {
@@ -307,22 +417,55 @@ const readStaticClassNameValue = (valueNode: Record<string, unknown> | null | un
 	return null
 }
 
+const isCnCallExpression = (node: Record<string, unknown> | null | undefined) => {
+	if (!node || node.type !== "CallExpression") return false
+	const callee = node.callee as Record<string, unknown> | null | undefined
+	if (!callee) return false
+	if (callee.type === "Identifier") {
+		return callee.name === "cn"
+	}
+	return false
+}
+
 const buildClassNameUpdate = (
 	openingElement: Record<string, unknown>,
 	attributes: Record<string, unknown>[],
-	updateX: boolean,
-	updateY: boolean,
-	alignClassX: string | null,
-	alignClassY: string | null,
+	options: {
+		updateAlignX: boolean
+		updateAlignY: boolean
+		alignClassX: string | null
+		alignClassY: string | null
+		updateTranslate: boolean
+		translateClasses: string[]
+		updateWidth: boolean
+		updateHeight: boolean
+		sizeClasses: string[]
+	},
 ): ClassNameUpdateResult => {
-	if (!updateX && !updateY) return { update: null, applied: false }
+	const shouldUpdate =
+		options.updateAlignX ||
+		options.updateAlignY ||
+		options.updateTranslate ||
+		options.updateWidth ||
+		options.updateHeight
+	if (!shouldUpdate) return { update: null, applied: false }
 	const classAttribute = attributes.find((attr) => {
 		const name = getAttributeName(attr)
 		return name === "className" || name === "class"
 	})
 
 	if (!classAttribute) {
-		const nextValue = normalizeClassName("", updateX, updateY, alignClassX, alignClassY)
+		const nextValue = normalizeTailwindClassName("", {
+			updateAlignX: options.updateAlignX,
+			updateAlignY: options.updateAlignY,
+			alignClassX: options.alignClassX,
+			alignClassY: options.alignClassY,
+			updateTranslate: options.updateTranslate,
+			translateClasses: options.translateClasses,
+			updateWidth: options.updateWidth,
+			updateHeight: options.updateHeight,
+			sizeClasses: options.sizeClasses,
+		})
 		if (!nextValue) {
 			return { update: null, applied: true }
 		}
@@ -343,10 +486,31 @@ const buildClassNameUpdate = (
 	const valueNode = classAttribute.value as Record<string, unknown> | null | undefined
 	const currentValue = readStaticClassNameValue(valueNode)
 	if (currentValue === null) {
-		return { update: null, applied: false }
+		const expression =
+			valueNode?.type === "JSXExpressionContainer"
+				? (valueNode.expression as Record<string, unknown> | null | undefined)
+				: null
+		const usesCn = Boolean(expression && isCnCallExpression(expression))
+		return {
+			update: null,
+			applied: false,
+			notice: usesCn
+				? "Layout mode couldn't rewrite className={cn(...)} safely. Falling back to inline styles."
+				: "Layout mode couldn't rewrite a dynamic className expression. Falling back to inline styles.",
+		}
 	}
 
-	const nextValue = normalizeClassName(currentValue, updateX, updateY, alignClassX, alignClassY)
+	const nextValue = normalizeTailwindClassName(currentValue, {
+		updateAlignX: options.updateAlignX,
+		updateAlignY: options.updateAlignY,
+		alignClassX: options.alignClassX,
+		alignClassY: options.alignClassY,
+		updateTranslate: options.updateTranslate,
+		translateClasses: options.translateClasses,
+		updateWidth: options.updateWidth,
+		updateHeight: options.updateHeight,
+		sizeClasses: options.sizeClasses,
+	})
 	if (nextValue === currentValue) {
 		return { update: null, applied: true }
 	}
@@ -524,26 +688,13 @@ export const applySnippetTranslate = async ({
 	const yIsZero = Math.abs(normalizedY) <= TRANSLATE_EPSILON
 	const shouldAlignX = updateX && xIsZero
 	const shouldAlignY = updateY && yIsZero
-	const classUpdateResult =
-		shouldAlignX || shouldAlignY
-			? buildClassNameUpdate(
-					openingElement,
-					attributes,
-					shouldAlignX,
-					shouldAlignY,
-					shouldAlignX ? alignClassX : null,
-					shouldAlignY ? alignClassY : null,
-				)
-			: { update: null, applied: false }
-	const alignXApplied = shouldAlignX && classUpdateResult.applied
-	const alignYApplied = shouldAlignY && classUpdateResult.applied
+	let notice: string | undefined
 
-	const nextTranslateX = alignXApplied || xIsZero ? 0 : translateX
-	const nextTranslateY = alignYApplied || yIsZero ? 0 : translateY
+	const nextTranslateX = xIsZero ? 0 : translateX
+	const nextTranslateY = yIsZero ? 0 : translateY
 	const nextNormalizedX = normalizeTranslateValue(nextTranslateX)
 	const nextNormalizedY = normalizeTranslateValue(nextTranslateY)
 	const removeTranslate = nextNormalizedX === 0 && nextNormalizedY === 0
-	const translateValue = formatTranslateValue(nextNormalizedX, nextNormalizedY)
 	const widthValue =
 		typeof width === "number" && Number.isFinite(width)
 			? formatSizeValue(normalizeSizeValue(width))
@@ -554,23 +705,60 @@ export const applySnippetTranslate = async ({
 			: null
 
 	const updates: SourceUpdate[] = []
-	if (classUpdateResult.update) {
+	const translateClasses = removeTranslate
+		? []
+		: buildTranslateClasses(nextNormalizedX, nextNormalizedY)
+	const sizeClasses = buildSizeClasses(widthValue, heightValue)
+	const classUpdateResult = buildClassNameUpdate(openingElement, attributes, {
+		updateAlignX: shouldAlignX,
+		updateAlignY: shouldAlignY,
+		alignClassX: shouldAlignX ? alignClassX : null,
+		alignClassY: shouldAlignY ? alignClassY : null,
+		updateTranslate: true,
+		translateClasses,
+		updateWidth: widthValue !== null,
+		updateHeight: heightValue !== null,
+		sizeClasses,
+	})
+
+	if (classUpdateResult.notice) {
+		notice = classUpdateResult.notice
+	}
+
+	const canWriteTailwindClasses = classUpdateResult.applied
+
+	if (canWriteTailwindClasses && classUpdateResult.update) {
 		updates.push(classUpdateResult.update)
 	}
 
 	const styleUpdates: StyleUpdate[] = []
-	if (removeTranslate) {
+	if (canWriteTailwindClasses) {
 		styleUpdates.push({ key: "translate", remove: true })
+		if (widthValue !== null) {
+			styleUpdates.push({ key: "width", remove: true })
+		}
+		if (heightValue !== null) {
+			styleUpdates.push({ key: "height", remove: true })
+		}
 	} else {
-		styleUpdates.push({ key: "translate", value: translateValue })
+		const translateValue = formatTranslateValue(nextNormalizedX, nextNormalizedY)
+		if (removeTranslate) {
+			styleUpdates.push({ key: "translate", remove: true })
+		} else {
+			styleUpdates.push({ key: "translate", value: translateValue })
+		}
+		if (widthValue !== null) {
+			styleUpdates.push({ key: "width", value: widthValue })
+		}
+		if (heightValue !== null) {
+			styleUpdates.push({ key: "height", value: heightValue })
+		}
 	}
-	if (widthValue !== null) {
-		styleUpdates.push({ key: "width", value: widthValue })
-	}
-	if (heightValue !== null) {
-		styleUpdates.push({ key: "height", value: heightValue })
-	}
-	const styleUpdate = buildStyleUpdate(source, openingElement, attributes, styleUpdates)
+
+	const styleUpdate =
+		styleUpdates.length > 0
+			? buildStyleUpdate(source, openingElement, attributes, styleUpdates)
+			: null
 	if (styleUpdate) {
 		updates.push(styleUpdate)
 	}
@@ -587,5 +775,5 @@ export const applySnippetTranslate = async ({
 		(current, update) => replaceRange(current, update.start, update.end, update.replacement),
 		source,
 	)
-	return { source: updatedSource, changed: updatedSource !== source }
+	return { source: updatedSource, changed: updatedSource !== source, notice }
 }

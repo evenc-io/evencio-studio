@@ -13,7 +13,7 @@ export default defineConfig({
 	reporter: [["list"], ["html", { open: "never" }]],
 	webServer: {
 		command: "bun run dev -- --host 127.0.0.1 --strictPort",
-		port: PORT,
+		url: baseURL,
 		reuseExistingServer: !process.env.CI,
 		timeout: 120_000,
 	},

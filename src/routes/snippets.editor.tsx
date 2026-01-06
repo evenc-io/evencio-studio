@@ -171,7 +171,6 @@ function NewSnippetPage() {
 	const [layersSnapshot, setLayersSnapshot] = useState<PreviewLayerSnapshot | null>(null)
 	const [layersError, setLayersError] = useState<string | null>(null)
 	const [layersRequestToken, setLayersRequestToken] = useState(0)
-	const [suppressNextRenderToken, setSuppressNextRenderToken] = useState(0)
 	const [componentTreeSelection, setComponentTreeSelection] =
 		useState<PreviewSourceLocation | null>(null)
 	const [componentTreeSelectionToken, setComponentTreeSelectionToken] = useState(0)
@@ -732,9 +731,6 @@ function NewSnippetPage() {
 		lineMapSegments,
 		forceEnabled: layoutMode,
 	})
-	const handleLayoutCommitApplied = useCallback(() => {
-		setSuppressNextRenderToken((prev) => prev + 1)
-	}, [])
 	const {
 		inspectTextEdit,
 		inspectContextMenu,
@@ -760,7 +756,6 @@ function NewSnippetPage() {
 		layoutMode,
 		isExamplePreviewActive,
 		inspectEnabled,
-		onLayoutCommitApplied: handleLayoutCommitApplied,
 	})
 
 	const setSnippetSource = useCallback(
@@ -1211,6 +1206,7 @@ function NewSnippetPage() {
 									form={form}
 									mainEditorSource={mainEditorSource}
 									onMainSourceChange={handleMainSourceChange}
+									deferExternalUpdatesWhileFocused={!layoutMode}
 									componentTypeLibs={componentTypeLibs}
 									componentDefinitionMap={componentDefinitionMap}
 									onDefinitionSelect={handleDefinitionSelect}
@@ -1305,7 +1301,6 @@ function NewSnippetPage() {
 												layoutSnapEnabled={layoutSnapEnabled}
 												layoutSnapGrid={layoutSnapGrid}
 												onLayoutCommit={handleLayoutCommit}
-												suppressNextRenderToken={suppressNextRenderToken}
 												onImportAssetRemove={
 													previewMode === "imports" ? handleImportAssetRemove : undefined
 												}

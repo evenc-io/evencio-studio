@@ -575,14 +575,26 @@ export function SnippetPreview({
 		const dimensionsChanged =
 			dimensions.width !== lastDimensions.width || dimensions.height !== lastDimensions.height
 		const codeChanged = compiledCode !== lastCompiledCodeRef.current
+		const nextCss = tailwindCss ?? null
+		const cssChanged = lastTailwindCssRef.current !== nextCss
 
 		if (!codeChanged && !dimensionsChanged) {
+			if (!cssChanged) return
+
+			const iframe = iframeRef.current
+			if (!iframe?.contentWindow || !iframeReadyRef.current) return
+
+			lastTailwindCssRef.current = nextCss
+			appendTrace({
+				direction: "out",
+				type: "tailwind-update",
+				detail: `cssLen=${nextCss ? nextCss.length : 0}`,
+			})
+			iframe.contentWindow.postMessage({ type: "tailwind-update", css: nextCss }, "*")
 			return
 		}
 
 		const iframe = iframeRef.current
-		onInspectHoverRef.current?.(null)
-		onInspectSelectRef.current?.(null, { reason: "reset" })
 
 		const canHotSwap =
 			Boolean(iframe?.contentWindow) && iframeReadyRef.current && !dimensionsChanged
@@ -591,6 +603,21 @@ export function SnippetPreview({
 			const suppressState = suppressRenderStateRef.current
 			const shouldSkipRender =
 				suppressState.codeRendersRemaining > 0 && Date.now() <= suppressState.deadline
+
+			if (lastTailwindCssRef.current !== nextCss) {
+				lastTailwindCssRef.current = nextCss
+				appendTrace({
+					direction: "out",
+					type: "tailwind-update",
+					detail: `cssLen=${nextCss ? nextCss.length : 0}`,
+				})
+				iframe?.contentWindow?.postMessage({ type: "tailwind-update", css: nextCss }, "*")
+			}
+
+			if (!shouldSkipRender) {
+				onInspectHoverRef.current?.(null)
+				onInspectSelectRef.current?.(null, { reason: "reset" })
+			}
 
 			lastCompiledCodeRef.current = compiledCode
 			lastDimensionsRef.current = dimensions
@@ -611,6 +638,9 @@ export function SnippetPreview({
 			)
 			return
 		}
+
+		onInspectHoverRef.current?.(null)
+		onInspectSelectRef.current?.(null, { reason: "reset" })
 
 		lastCompiledCodeRef.current = compiledCode
 		lastDimensionsRef.current = dimensions

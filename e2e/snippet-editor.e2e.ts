@@ -128,6 +128,55 @@ const EvencioLockup = ({ markSize = 44 }: { markSize?: number }) => (
 )
 // @snippet-file-end`
 
+const LAYOUT_SNIPPET = `// @res 520x340
+export default function LayoutTest() {
+  return (
+    <div className="relative h-full w-full bg-neutral-50">
+      <div
+        data-testid="layout-box"
+        className="absolute left-[120px] top-[72px] max-w-[28rem] w-32 h-10 bg-red-500"
+      />
+    </div>
+  )
+}
+`
+
+const MULTI_COMPONENT_LAYOUT_SNIPPET = `// @res 720x420
+// @import Child.tsx
+
+export default function MultiComponentLayoutTest({
+  title = "Evencio Launch Night",
+  subtitle = "Founders, operators, and designers in one room.",
+}) {
+  return (
+    <div className="h-full w-full bg-white text-neutral-900">
+      <div className="p-6">
+        <div className="mt-8">
+          <h1 data-testid="layout-h1" className="font-lexend text-[44px] leading-[1.05] tracking-[-0.02em] text-neutral-900">
+            {title}
+          </h1>
+          <p className="mt-4 max-w-[28rem] text-base leading-relaxed text-neutral-600">
+            {subtitle}
+          </p>
+        </div>
+
+        <Child />
+      </div>
+    </div>
+  )
+}
+
+// @snippet-file Child.tsx
+export function Child() {
+  return (
+    <div className="mt-4 rounded border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-600">
+      Imported component
+    </div>
+  )
+}
+// @snippet-file-end
+`
+
 const openNewSnippetEditor = async (page: Page) => {
 	await page.goto("/library")
 	await page.getByRole("link", { name: "Add Snippet" }).click()
@@ -155,6 +204,63 @@ const ensureDetailsOpen = async (page: Page) => {
 	if (detailsPressed !== "true") {
 		await detailsToggle.click()
 	}
+}
+
+const readSnippetDraftSource = async (page: Page, draftId: string) => {
+	return page.evaluate(async (targetDraftId) => {
+		const databaseName = "evencio-studio"
+		const storeName = "snippetDrafts"
+
+		let db: IDBDatabase | null = null
+		try {
+			db = await new Promise<IDBDatabase>((resolve, reject) => {
+				const request = indexedDB.open(databaseName)
+				request.onerror = () => reject(request.error)
+				request.onsuccess = () => resolve(request.result)
+			})
+
+			if (!db) {
+				return "__NO_DB__"
+			}
+			const dbInstance = db
+
+			if (!dbInstance.objectStoreNames.contains(storeName)) {
+				return "__NO_STORE__"
+			}
+
+			const record = await new Promise<Record<string, unknown> | null>((resolve, reject) => {
+				const tx = dbInstance.transaction(storeName, "readonly")
+				const store = tx.objectStore(storeName)
+				const request = store.get(targetDraftId)
+				request.onerror = () => reject(request.error)
+				request.onsuccess = () =>
+					resolve((request.result as Record<string, unknown> | null) ?? null)
+			})
+
+			const source = record && typeof record.source === "string" ? record.source : null
+			if (source) return source
+
+			const keys = await new Promise<string[]>((resolve, reject) => {
+				const tx = dbInstance.transaction(storeName, "readonly")
+				const store = tx.objectStore(storeName)
+				const request = store.getAllKeys()
+				request.onerror = () => reject(request.error)
+				request.onsuccess = () => resolve(request.result.map(String))
+			})
+
+			return `__NO_RECORD__ keys=${keys.join(",")}`
+		} catch (error) {
+			const message =
+				error instanceof Error
+					? error.message
+					: error && typeof error === "object" && "message" in error
+						? String(error.message)
+						: String(error)
+			return `__ERROR__:${message}`
+		} finally {
+			db?.close()
+		}
+	}, draftId)
 }
 
 const importSnippet = async (page: Page, source: string) => {
@@ -227,4 +333,273 @@ test("reset new snippet clears the cached draft and restores the starter snippet
 	await expect(
 		switcherAfterReload.getByRole("button", { name: "Reset new snippet draft" }),
 	).toHaveCount(0)
+})
+
+test("layout mode persists translate + size as Tailwind utilities", async ({ page }) => {
+	await openNewSnippetEditor(page)
+	await importSnippet(page, LAYOUT_SNIPPET)
+
+	const previewFrame = page.locator('iframe[data-snippet-preview="iframe"]')
+	await expect(previewFrame).toBeVisible()
+
+	const preview = page.frameLocator('iframe[data-snippet-preview="iframe"]')
+	const box = preview.locator('[data-testid="layout-box"]')
+	await expect(box).toBeVisible()
+
+	await page.evaluate(() => {
+		const win = window as unknown as { __e2eLayoutCommits?: unknown[] }
+		win.__e2eLayoutCommits = []
+		window.addEventListener("message", (event) => {
+			const raw = (event as MessageEvent).data
+			if (!raw || typeof raw !== "object") return
+			const data = raw as { type?: unknown; commit?: unknown }
+			if (data.type !== "layout-commit") return
+			if (!data.commit) return
+			win.__e2eLayoutCommits?.push(data.commit)
+		})
+	})
+
+	const componentTreePanel = page.getByRole("complementary").filter({ hasText: "Components" })
+	const componentTreeBoxNode = componentTreePanel.getByRole("button", {
+		name: /div \.absolute left-\[120px\] top-\[72px\]/,
+	})
+	const componentTreeBoxRow = componentTreeBoxNode.locator("..")
+
+	const readLayoutDraftSource = async () =>
+		(await readSnippetDraftSource(page, "snippet-draft:new")) ?? ""
+	const readLayoutBoxClassName = async () => {
+		const draftSource = await readLayoutDraftSource()
+		const match = draftSource.match(/data-testid="layout-box"[\s\S]*?className="([^"]*)"/)
+		return match?.[1] ?? ""
+	}
+
+	const layoutButton = page.getByRole("button", { name: "Layout", exact: true })
+	await layoutButton.click()
+	await expect(layoutButton).toHaveAttribute("aria-pressed", "true")
+
+	const boxBounds = await box.boundingBox()
+	if (!boxBounds) {
+		throw new Error("Layout test element did not return a bounding box")
+	}
+
+	// Select to reveal resize handles, then resize from bottom-right corner.
+	await box.click()
+	await expect(componentTreeBoxRow).toHaveClass(/bg-neutral-100/)
+	const resizeHandle = preview.locator('[data-snippet-resize-handle="se"]')
+	await expect(resizeHandle).toBeVisible()
+
+	const resizeHandleBounds = await resizeHandle.boundingBox()
+	if (!resizeHandleBounds) {
+		throw new Error("Layout resize handle did not return a bounding box")
+	}
+
+	const handleX = resizeHandleBounds.x + resizeHandleBounds.width / 2
+	const handleY = resizeHandleBounds.y + resizeHandleBounds.height / 2
+	await page.mouse.move(handleX, handleY)
+	await page.mouse.down()
+	await page.mouse.move(handleX + 60, handleY + 30, {
+		steps: 10,
+	})
+	await page.waitForTimeout(50)
+	await page.mouse.up()
+
+	await expect
+		.poll(
+			async () => {
+				return await page.evaluate(() => {
+					const win = window as unknown as { __e2eLayoutCommits?: unknown[] }
+					return win.__e2eLayoutCommits?.length ?? 0
+				})
+			},
+			{ timeout: 15_000 },
+		)
+		.toBeGreaterThanOrEqual(1)
+	const firstLayoutCommit = (await page.evaluate(() => {
+		const win = window as unknown as { __e2eLayoutCommits?: unknown[] }
+		return win.__e2eLayoutCommits?.[0] ?? null
+	})) as unknown
+	const firstCommitWidth =
+		firstLayoutCommit && typeof firstLayoutCommit === "object"
+			? (firstLayoutCommit as { width?: unknown }).width
+			: null
+	const firstCommitHeight =
+		firstLayoutCommit && typeof firstLayoutCommit === "object"
+			? (firstLayoutCommit as { height?: unknown }).height
+			: null
+	if (typeof firstCommitWidth !== "number" || typeof firstCommitHeight !== "number") {
+		throw new Error("Expected the first layout commit to include width + height")
+	}
+
+	await expect.poll(readLayoutBoxClassName, { timeout: 15_000 }).toMatch(/\bw-\[/)
+	const firstBoxClassName = await readLayoutBoxClassName()
+	await expect(componentTreeBoxRow).toHaveClass(/bg-neutral-100/)
+
+	// Resize a second time to ensure selection doesn't jump to a parent element.
+	const firstBounds = await box.boundingBox()
+	if (!firstBounds) {
+		throw new Error("Layout test element did not return a bounding box before second resize")
+	}
+	const resizedHandleBoundsFirst = await resizeHandle.boundingBox()
+	if (!resizedHandleBoundsFirst) {
+		throw new Error("Layout resize handle did not return a bounding box after resize")
+	}
+	const handleXFirst = resizedHandleBoundsFirst.x + resizedHandleBoundsFirst.width / 2
+	const handleYFirst = resizedHandleBoundsFirst.y + resizedHandleBoundsFirst.height / 2
+	await page.mouse.move(handleXFirst, handleYFirst)
+	await page.mouse.down()
+	await page.mouse.move(handleXFirst - 40, handleYFirst - 20, { steps: 10 })
+	await page.waitForTimeout(50)
+	await page.mouse.up()
+	await expect(componentTreeBoxRow).toHaveClass(/bg-neutral-100/)
+
+	const secondBounds = await box.boundingBox()
+	if (!secondBounds) {
+		throw new Error("Layout test element did not return a bounding box after second resize")
+	}
+	const widthChanged = Math.round(secondBounds.width) !== Math.round(firstBounds.width)
+	const heightChanged = Math.round(secondBounds.height) !== Math.round(firstBounds.height)
+	expect(widthChanged || heightChanged).toBe(true)
+
+	await expect
+		.poll(
+			async () => {
+				return await page.evaluate(() => {
+					const win = window as unknown as { __e2eLayoutCommits?: unknown[] }
+					return win.__e2eLayoutCommits?.length ?? 0
+				})
+			},
+			{ timeout: 15_000 },
+		)
+		.toBeGreaterThanOrEqual(2)
+
+	const secondLayoutCommit = (await page.evaluate(() => {
+		const win = window as unknown as { __e2eLayoutCommits?: unknown[] }
+		return win.__e2eLayoutCommits?.[1] ?? null
+	})) as unknown
+	const secondCommitWidth =
+		secondLayoutCommit && typeof secondLayoutCommit === "object"
+			? (secondLayoutCommit as { width?: unknown }).width
+			: null
+	const secondCommitHeight =
+		secondLayoutCommit && typeof secondLayoutCommit === "object"
+			? (secondLayoutCommit as { height?: unknown }).height
+			: null
+	if (typeof secondCommitWidth !== "number" || typeof secondCommitHeight !== "number") {
+		throw new Error("Expected the second layout commit to include width + height")
+	}
+	const commitWidthChanged = secondCommitWidth !== firstCommitWidth
+	const commitHeightChanged = secondCommitHeight !== firstCommitHeight
+	expect(commitWidthChanged || commitHeightChanged).toBe(true)
+
+	await expect
+		.poll(
+			async () => {
+				const className = await readLayoutBoxClassName()
+				return className !== firstBoxClassName ? className : ""
+			},
+			{ timeout: 15_000 },
+		)
+		.toMatch(/\bw-\[/)
+
+	// Move the element to force a translate commit.
+	const resizedBounds = await box.boundingBox()
+	if (!resizedBounds) {
+		throw new Error("Layout test element did not return a bounding box after resize")
+	}
+	const centerX = resizedBounds.x + resizedBounds.width / 2
+	const centerY = resizedBounds.y + resizedBounds.height / 2
+	await page.mouse.move(centerX, centerY)
+	await page.keyboard.down("Alt")
+	await page.mouse.down()
+	await page.mouse.move(centerX + 20, centerY + 20, { steps: 10 })
+	await page.waitForTimeout(50)
+	await page.mouse.up()
+	await page.keyboard.up("Alt")
+
+	// Preview render is suppressed right after commits; assert persistence via the draft autosave.
+	await expect.poll(readLayoutDraftSource, { timeout: 15_000 }).toMatch(/translate-x-\[/)
+
+	const moveCommit = (await page.evaluate(() => {
+		const win = window as unknown as { __e2eLayoutCommits?: unknown[] }
+		const commits = win.__e2eLayoutCommits ?? []
+		return commits.length > 0 ? commits[commits.length - 1] : null
+	})) as unknown
+	const moveTranslateY =
+		moveCommit &&
+		typeof moveCommit === "object" &&
+		"translate" in moveCommit &&
+		typeof moveCommit.translate === "object" &&
+		moveCommit.translate &&
+		"y" in moveCommit.translate &&
+		typeof moveCommit.translate.y === "number"
+			? moveCommit.translate.y
+			: null
+
+	const draftSource = await readLayoutDraftSource()
+	const boxClassName = await readLayoutBoxClassName()
+	expect(draftSource).toContain('data-testid="layout-box"')
+	expect(boxClassName).toMatch(/translate-x-\[/)
+	if (typeof moveTranslateY === "number" && Math.abs(moveTranslateY) >= 0.5) {
+		expect(boxClassName).toMatch(/translate-y-\[/)
+	}
+	expect(boxClassName).toMatch(/\bw-\[/)
+	expect(boxClassName).toMatch(/\bh-\[/)
+	expect(draftSource).not.toContain("max-w-[28rem]")
+	expect(draftSource).not.toMatch(/\bw-32\b/)
+	expect(draftSource).not.toMatch(/\bh-10\b/)
+
+	expect(draftSource).not.toMatch(/className="relative h-full w-full bg-neutral-50[^"]*\bw-\[/)
+	expect(draftSource).not.toMatch(/className="relative h-full w-full bg-neutral-50[^"]*\bh-\[/)
+})
+
+test("layout mode preserves nested element selection after resize", async ({ page }) => {
+	await openNewSnippetEditor(page)
+	await importSnippet(page, MULTI_COMPONENT_LAYOUT_SNIPPET)
+
+	const previewFrame = page.locator('iframe[data-snippet-preview="iframe"]')
+	await expect(previewFrame).toBeVisible()
+
+	const preview = page.frameLocator('iframe[data-snippet-preview="iframe"]')
+	const h1 = preview.locator('[data-testid="layout-h1"]')
+	await expect(h1).toBeVisible()
+
+	const readDraftSource = async () =>
+		(await readSnippetDraftSource(page, "snippet-draft:new")) ?? ""
+
+	const layoutButton = page.getByRole("button", { name: "Layout", exact: true })
+	await layoutButton.click()
+	await expect(layoutButton).toHaveAttribute("aria-pressed", "true")
+
+	await h1.click()
+	const resizeHandle = preview.locator('[data-snippet-resize-handle="se"]')
+	await expect(resizeHandle).toBeVisible()
+
+	const dragHandleBy = async (dx: number, dy: number) => {
+		const bounds = await resizeHandle.boundingBox()
+		if (!bounds) {
+			throw new Error("Layout resize handle did not return a bounding box")
+		}
+		const startX = bounds.x + bounds.width / 2
+		const startY = bounds.y + bounds.height / 2
+		await page.mouse.move(startX, startY)
+		await page.mouse.down()
+		await page.mouse.move(startX + dx, startY + dy, { steps: 10 })
+		await page.waitForTimeout(50)
+		await page.mouse.up()
+	}
+
+	await dragHandleBy(80, 30)
+	await expect
+		.poll(readDraftSource, { timeout: 15_000 })
+		.toMatch(/data-testid="layout-h1"[^>]*className="[^"]*\bw-\[/)
+	await expect
+		.poll(readDraftSource, { timeout: 15_000 })
+		.toMatch(/data-testid="layout-h1"[^>]*className="[^"]*\bh-\[/)
+
+	await dragHandleBy(-40, -20)
+	const draftSource = await readDraftSource()
+	expect(draftSource).not.toMatch(/<div className="mt-8[^"]*\bw-\[/)
+	expect(draftSource).not.toMatch(/<div className="mt-8[^"]*\bh-\[/)
+	expect(draftSource).toMatch(/data-testid="layout-h1"[^>]*className="[^"]*\bw-\[/)
+	expect(draftSource).toMatch(/data-testid="layout-h1"[^>]*className="[^"]*\bh-\[/)
 })

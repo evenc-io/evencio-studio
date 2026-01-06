@@ -80,6 +80,7 @@ export const useSnippetInspectText = ({
 	const inspectTextPendingValueRef = useRef<string | null>(null)
 	const inspectContextMenuRef = useRef<HTMLDivElement>(null)
 	const layoutCommitQueueRef = useRef<Promise<void>>(Promise.resolve())
+	const layoutNoticesSeenRef = useRef(new Set<string>())
 	const [inspectTextEdit, setInspectTextEdit] = useState<InspectTextEditState | null>(null)
 	const [inspectContextMenu, setInspectContextMenu] = useState<InspectContextMenuState>({
 		open: false,
@@ -382,6 +383,10 @@ export const useSnippetInspectText = ({
 					}
 					const applied = applyLayoutSourceForFile(target.fileId, result.source, historyLabel)
 					if (applied) {
+						if (result.notice && !layoutNoticesSeenRef.current.has(result.notice)) {
+							layoutNoticesSeenRef.current.add(result.notice)
+							toast(result.notice)
+						}
 						onLayoutCommitApplied?.()
 					}
 				} catch (err) {

@@ -10,6 +10,7 @@ count.txt
 .wrangler
 .vercel
 .output
+.tmp
 .vinxi
 .zig-cache
 todos.json

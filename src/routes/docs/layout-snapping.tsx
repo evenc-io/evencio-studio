@@ -7,9 +7,9 @@ export const Route = createFileRoute("/docs/layout-snapping")({
 
 const CODE_ALIGNMENT_ONLY = `<h1 className="font-lexend text-5xl mr-auto">\n  {title}\n</h1>`
 
-const CODE_OFFSET_KEPT = `<h1 className="font-lexend text-5xl mx-auto" style={{ translate: "0px 475.21px" }}>\n  {title}\n</h1>`
+const CODE_OFFSET_KEPT = `<h1 className="font-lexend text-5xl mx-auto translate-y-[475.21px]">\n  {title}\n</h1>`
 
-const CODE_SIBLING_OFFSET = `<p className="mt-6 text-[40px] text-neutral-300" style={{ translate: "0px -24px" }}>\n  {subtitle}\n</p>`
+const CODE_SIBLING_OFFSET = `<p className="mt-6 text-[40px] text-neutral-300 translate-y-[-24px]">\n  {subtitle}\n</p>`
 
 function LayoutSnappingGuide() {
 	return (
@@ -36,7 +36,7 @@ function LayoutSnappingGuide() {
 						</p>
 						<p className="mt-2 text-sm text-neutral-600">
 							If a snap lands exactly on a parent edge or center (no residual offset), the editor
-							writes alignment classes and removes translate.
+							writes alignment classes and removes translate utilities.
 						</p>
 					</div>
 					<div className="rounded-md border border-neutral-200 bg-neutral-50 p-5">
@@ -44,8 +44,8 @@ function LayoutSnappingGuide() {
 							Offsets keep translate
 						</p>
 						<p className="mt-2 text-sm text-neutral-600">
-							Any non-zero offset stays as inline translate. This avoids conflicting with existing
-							Tailwind spacing utilities and preserves pixel-accurate layout.
+							Any non-zero offset is stored as Tailwind translate utilities (arbitrary values), so
+							the output stays “pure Tailwind” while preserving pixel-accurate layout.
 						</p>
 					</div>
 				</div>
