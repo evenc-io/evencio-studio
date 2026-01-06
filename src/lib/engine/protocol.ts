@@ -58,6 +58,7 @@ export type LayoutTranslateResponse = {
 	source: string
 	changed: boolean
 	reason?: string
+	notice?: string
 }
 
 export type InsertChildRequest = {

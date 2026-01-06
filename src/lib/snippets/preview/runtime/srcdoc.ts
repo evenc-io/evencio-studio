@@ -482,11 +482,12 @@ export function generatePreviewSrcdoc(
       const resolveInspectableTarget = (target) => {
         const container = document.getElementById("snippet-container");
         if (!container) return null;
-        if (!(target instanceof Element)) return null;
-        if (!container.contains(target)) return null;
+        const elementTarget = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+        if (!elementTarget) return null;
+        if (!container.contains(elementTarget)) return null;
 
-        const importWrapper = typeof target.closest === "function"
-          ? target.closest("[data-snippet-asset]")
+        const importWrapper = typeof elementTarget.closest === "function"
+          ? elementTarget.closest("[data-snippet-asset]")
           : null;
         if (
           importWrapper &&
@@ -498,7 +499,7 @@ export function generatePreviewSrcdoc(
           return importWrapper;
         }
 
-        let current = target;
+        let current = elementTarget;
         while (current && current !== container) {
           if (current.getAttribute && current.getAttribute("data-snippet-inspect") === "ignore") {
             current = current.parentElement;
@@ -612,6 +613,7 @@ export function generatePreviewSrcdoc(
         };
 
         const attachHandleListener = (handle, name) => {
+          handle.setAttribute("data-snippet-resize-handle", name);
           handle.addEventListener("pointerdown", (event) => {
             if (typeof onResizeHandlePointerDown !== "function") return;
             onResizeHandlePointerDown(event, name);
@@ -726,6 +728,9 @@ export function generatePreviewSrcdoc(
           handle.style.top = Math.round(y) + "px";
         };
 
+        let handlesVisible = false;
+        let handlesScale = 1;
+
         return {
           setEnabled(enabled) {
             overlay.style.display = enabled ? "block" : "none";
@@ -738,10 +743,36 @@ export function generatePreviewSrcdoc(
           },
           updateHandles({ target, enabled }) {
             const show = Boolean(enabled && target);
-            for (const handle of Object.values(handles)) {
-              handle.style.display = show ? "block" : "none";
+            if (show !== handlesVisible) {
+              handlesVisible = show;
+              for (const handle of Object.values(handles)) {
+                handle.style.display = show ? "block" : "none";
+              }
             }
             if (!show || !target) return;
+
+            const handleScale = inspectScale > 0 ? 1 / inspectScale : 1;
+            if (handleScale !== handlesScale) {
+              handlesScale = handleScale;
+              for (const handle of Object.values(handles)) {
+                handle.style.transform = "translate(-50%, -50%) scale(" + handleScale + ")";
+              }
+            }
+            const handleRadius = Math.max(0, (RESIZE_HANDLE_SIZE * handleScale) / 2);
+            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+            const clampPos = (value, min, max) => {
+              if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max)) {
+                return value;
+              }
+              if (min <= max) {
+                return Math.min(Math.max(value, min), max);
+              }
+              return Math.min(Math.max(value, max), min);
+            };
+            const clampX = (x) => clampPos(x, handleRadius, viewportWidth - handleRadius);
+            const clampY = (y) => clampPos(y, handleRadius, viewportHeight - handleRadius);
+
             const rect = target.getBoundingClientRect();
             const left = rect.left;
             const right = rect.right;
@@ -749,14 +780,14 @@ export function generatePreviewSrcdoc(
             const bottom = rect.bottom;
             const midX = left + rect.width / 2;
             const midY = top + rect.height / 2;
-            setHandlePosition(handles.nw, left, top);
-            setHandlePosition(handles.n, midX, top);
-            setHandlePosition(handles.ne, right, top);
-            setHandlePosition(handles.e, right, midY);
-            setHandlePosition(handles.se, right, bottom);
-            setHandlePosition(handles.s, midX, bottom);
-            setHandlePosition(handles.sw, left, bottom);
-            setHandlePosition(handles.w, left, midY);
+            setHandlePosition(handles.nw, clampX(left), clampY(top));
+            setHandlePosition(handles.n, clampX(midX), clampY(top));
+            setHandlePosition(handles.ne, clampX(right), clampY(top));
+            setHandlePosition(handles.e, clampX(right), clampY(midY));
+            setHandlePosition(handles.se, clampX(right), clampY(bottom));
+            setHandlePosition(handles.s, clampX(midX), clampY(bottom));
+            setHandlePosition(handles.sw, clampX(left), clampY(bottom));
+            setHandlePosition(handles.w, clampX(left), clampY(midY));
           },
         };
       };
@@ -767,9 +798,28 @@ export function generatePreviewSrcdoc(
         hovered: null,
         selected: null,
       };
+      let pendingLayoutSelectionRestore = null;
+      let pendingLayoutVisualOverride = null;
       const dragHighlightState = {
         enabled: false,
         hovered: null,
+      };
+      const INSPECT_CLICK_SUPPRESS_MS = 200;
+      let inspectClickSuppressedUntil = 0;
+      let suppressNextInspectClick = false;
+      const queueInspectClickSuppression = () => {
+        suppressNextInspectClick = true;
+        inspectClickSuppressedUntil = Date.now() + INSPECT_CLICK_SUPPRESS_MS;
+      };
+      const consumeInspectClickSuppression = () => {
+        if (!suppressNextInspectClick) return false;
+        if (Date.now() > inspectClickSuppressedUntil) {
+          suppressNextInspectClick = false;
+          return false;
+        }
+        suppressNextInspectClick = false;
+        inspectClickSuppressedUntil = 0;
+        return true;
       };
 
       let inspectListenersAttached = false;
@@ -796,6 +846,157 @@ export function generatePreviewSrcdoc(
       const sendInspectMessage = (type, element, payload) => {
         const source = element ? elementSourceMap.get(element) : null;
         parent.postMessage({ type, source: source ?? null, ...(payload ?? {}) }, "*");
+      };
+
+      const buildLayoutSelectionPath = (element) => {
+        if (!element || !(element instanceof Element)) return null;
+        const container = document.getElementById("snippet-container");
+        if (!container || !(container instanceof Element)) return null;
+        if (!container.contains(element)) return null;
+
+        const path = [];
+        let current = element;
+        while (current && current !== container) {
+          const parent = current.parentElement;
+          if (!parent) return null;
+          const index = Array.prototype.indexOf.call(parent.children, current);
+          if (!Number.isFinite(index) || index < 0) return null;
+          path.push(index);
+          current = parent;
+        }
+
+        path.reverse();
+        return path;
+      };
+
+      const resolveElementFromLayoutPath = (path) => {
+        if (!path || !Array.isArray(path) || path.length === 0) return null;
+        const container = document.getElementById("snippet-container");
+        if (!container || !(container instanceof Element)) return null;
+
+        let current = container;
+        for (const index of path) {
+          if (typeof index !== "number") return null;
+          const next = current.children.item(index);
+          if (!next || !(next instanceof Element)) return null;
+          current = next;
+        }
+
+        return current;
+      };
+
+      const stashLayoutVisualOverride = (element, snapshot) => {
+        if (!element || !(element instanceof Element)) return;
+        const path = buildLayoutSelectionPath(element);
+        if (!path) return;
+        pendingLayoutVisualOverride = {
+          tagName: element.tagName,
+          path,
+          translate: snapshot && snapshot.translate ? snapshot.translate : null,
+          width: snapshot && typeof snapshot.width === "number" ? snapshot.width : null,
+          height: snapshot && typeof snapshot.height === "number" ? snapshot.height : null,
+        };
+      };
+
+      const applyPendingLayoutVisualOverride = () => {
+        if (!pendingLayoutVisualOverride) return;
+        const snapshot = pendingLayoutVisualOverride;
+        pendingLayoutVisualOverride = null;
+
+        const target = resolveElementFromLayoutPath(snapshot.path);
+        if (!target || !(target instanceof Element)) return;
+        if (snapshot.tagName && target.tagName !== snapshot.tagName) return;
+
+        if (
+          snapshot.translate &&
+          typeof snapshot.translate.x === "number" &&
+          typeof snapshot.translate.y === "number"
+        ) {
+          target.style.translate = snapshot.translate.x + "px " + snapshot.translate.y + "px";
+          elementTranslateMap.set(target, { x: snapshot.translate.x, y: snapshot.translate.y });
+        }
+        if (typeof snapshot.width === "number") {
+          target.style.width = snapshot.width + "px";
+        }
+        if (typeof snapshot.height === "number") {
+          target.style.height = snapshot.height + "px";
+        }
+      };
+
+      const stashLayoutSelectionForRestore = () => {
+        if (!layoutState.enabled) return;
+        const selected = inspectState.selected;
+        if (!selected) return;
+        const source = elementSourceMap.get(selected) ?? null;
+        if (!source) return;
+        pendingLayoutSelectionRestore = {
+          source,
+          tagName: selected.tagName,
+          path: buildLayoutSelectionPath(selected),
+        };
+      };
+
+      const restoreLayoutSelectionIfNeeded = () => {
+        if (!pendingLayoutSelectionRestore) return;
+        const { source, tagName, path } = pendingLayoutSelectionRestore;
+        pendingLayoutSelectionRestore = null;
+        if (!layoutState.enabled) return;
+
+        const applySelection = (target) => {
+          inspectState.selected = target;
+          inspectState.hovered = null;
+          updateInspectOverlay();
+          sendInspectMessage("inspect-select", target);
+        };
+
+        const pickCandidate = (candidate) => {
+          if (!candidate || !(candidate instanceof Element)) return null;
+          if (tagName && candidate.tagName !== tagName) return null;
+          if (!elementSourceMap.has(candidate)) return null;
+          return candidate;
+        };
+
+        const key = getSourceKey(source);
+        if (key) {
+          const direct = pickCandidate(pickSourceCandidate(sourceElementMap.get(key)));
+          if (direct) return applySelection(direct);
+        }
+
+        const pathCandidate = pickCandidate(resolveElementFromLayoutPath(path));
+        if (pathCandidate) return applySelection(pathCandidate);
+
+        if (source && typeof source === "object") {
+          const column = source.columnNumber;
+          if (typeof column === "number") {
+            for (const offset of [-1, 1]) {
+              const neighborKey = getSourceKey({ ...source, columnNumber: column + offset });
+              const neighborMatch = pickCandidate(
+                pickSourceCandidate(neighborKey ? sourceElementMap.get(neighborKey) : null),
+              );
+              if (neighborMatch) return applySelection(neighborMatch);
+            }
+          }
+        }
+
+        if (source && typeof source === "object") {
+          const lineKey = getSourceLineKey(source);
+          const lineCandidates = lineKey ? sourceElementMapByLine.get(lineKey) : null;
+          if (lineCandidates && lineCandidates.length) {
+            const container = document.getElementById("snippet-container");
+            const inContainer = container
+              ? lineCandidates.filter((element) => element && container.contains(element))
+              : lineCandidates.filter(Boolean);
+            const tagMatches = tagName ? inContainer.filter((element) => element.tagName === tagName) : [];
+            const uniqueCandidate =
+              tagMatches.length === 1 ? tagMatches[0] : inContainer.length === 1 ? inContainer[0] : null;
+            const selectedCandidate = pickCandidate(uniqueCandidate);
+            if (selectedCandidate) return applySelection(selectedCandidate);
+          }
+        }
+
+        inspectState.selected = null;
+        updateInspectOverlay();
+        sendInspectMessage("inspect-select", null);
       };
 
       const resolveLayoutTarget = () => {
@@ -888,6 +1089,7 @@ export function generatePreviewSrcdoc(
         if (event.button !== 0) return;
         event.preventDefault();
         event.stopPropagation();
+        if (consumeInspectClickSuppression()) return;
         const target = resolveInspectableTarget(event.target);
         inspectState.selected = target;
         updateInspectOverlay();
@@ -2090,6 +2292,9 @@ export function generatePreviewSrcdoc(
         }
         const { dx, dy } = computeDragDelta();
         const moved = Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5;
+        if (moved) {
+          queueInspectClickSuppression();
+        }
         const target = layoutState.active;
         const translate = layoutState.currentTranslate;
         const bounds = layoutState.bounds;
@@ -2111,6 +2316,7 @@ export function generatePreviewSrcdoc(
         }
         const didCommit = Boolean(commit && moved && target);
         if (didCommit) {
+          stashLayoutVisualOverride(target, { translate });
           const source = elementSourceMap.get(target) ?? null;
           const alignX = resolveAlignmentX(translate, bounds);
           const alignY = resolveAlignmentY(translate, bounds, target);
@@ -2159,6 +2365,7 @@ export function generatePreviewSrcdoc(
           pendingCodeUpdate = null;
           pendingPropsRender = false;
           if (!next.skipRender) {
+            stashLayoutSelectionForRestore();
             resetInspectState();
           }
           applyCompiledCode(next.code);
@@ -2195,6 +2402,9 @@ export function generatePreviewSrcdoc(
           Math.abs(height - resizeState.baseHeight) >= 0.5 ||
           Math.abs(translate.x - resizeState.baseTranslate.x) >= 0.5 ||
           Math.abs(translate.y - resizeState.baseTranslate.y) >= 0.5;
+        if (moved) {
+          queueInspectClickSuppression();
+        }
 
         resizeState.active = null;
         resizeState.handle = null;
@@ -2222,6 +2432,7 @@ export function generatePreviewSrcdoc(
           if (source) {
             setStoredSourceTranslate(source, translate);
           }
+          stashLayoutVisualOverride(target, { translate, width, height });
           layoutState.commitPending = true;
           if (layoutState.commitTimeout) {
             window.clearTimeout(layoutState.commitTimeout);
@@ -2259,6 +2470,7 @@ export function generatePreviewSrcdoc(
           pendingCodeUpdate = null;
           pendingPropsRender = false;
           if (!next.skipRender) {
+            stashLayoutSelectionForRestore();
             resetInspectState();
           }
           applyCompiledCode(next.code);
@@ -2703,10 +2915,13 @@ export function generatePreviewSrcdoc(
             ? SnippetComponent(props)
             : SnippetComponent;
           renderNode(output, container);
+          applyPendingLayoutVisualOverride();
           setupImportsTileScale();
+          restoreLayoutSelectionIfNeeded();
           parent.postMessage({ type: 'render-success' }, '*');
           scheduleLayerSnapshot();
         } catch (error) {
+          pendingLayoutSelectionRestore = null;
           showRenderError(error);
         }
       };
@@ -2800,6 +3015,7 @@ export function generatePreviewSrcdoc(
             return;
           }
           if (!skipRender) {
+            stashLayoutSelectionForRestore();
             resetInspectState();
           }
           applyCompiledCode(data.code);

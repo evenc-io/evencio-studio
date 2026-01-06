@@ -163,4 +163,58 @@ describe("SnippetPreview", () => {
 		const parsed = JSON.parse(String(propsJson))
 		expect(parsed).toEqual({ a: { x: 1 }, b: { x: 1 } })
 	})
+
+	it("sends a tailwind update when only the CSS changes", async () => {
+		const { rerender } = render(
+			<SnippetPreview
+				compiledCode="export default () => null"
+				props={{ a: 1 }}
+				tailwindCss="/* initial */"
+			/>,
+		)
+
+		const iframe = screen.getByTitle("Snippet Preview") as HTMLIFrameElement
+		const iframeWindow =
+			iframe.contentWindow ??
+			(() => {
+				const value = { postMessage: vi.fn() } as unknown as Window
+				Object.defineProperty(iframe, "contentWindow", { value })
+				return value
+			})()
+
+		const postMessageSpy = vi.spyOn(iframeWindow, "postMessage")
+
+		act(() => {
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					data: { type: "ready" },
+					source: iframeWindow,
+				}),
+			)
+			window.dispatchEvent(
+				new MessageEvent("message", {
+					data: { type: "render-success" },
+					source: iframeWindow,
+				}),
+			)
+		})
+
+		postMessageSpy.mockClear()
+
+		rerender(
+			<SnippetPreview
+				compiledCode="export default () => null"
+				props={{ a: 1 }}
+				tailwindCss="/* updated */"
+			/>,
+		)
+
+		await waitFor(() => {
+			const types = postMessageSpy.mock.calls.map((call) => call[0]?.type)
+			expect(types).toContain("tailwind-update")
+		})
+
+		const call = postMessageSpy.mock.calls.find((entry) => entry[0]?.type === "tailwind-update")
+		expect(call?.[0]?.css).toBe("/* updated */")
+	})
 })

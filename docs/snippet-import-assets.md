@@ -111,7 +111,8 @@ After the snippet re-renders, we ask the preview to “place” the newly insert
 
 - Editor sends: `postMessage({ type: "import-dnd-commit", source, x, y })`
 - Preview runtime uses the layout snapping engine to compute a translate and emits a normal `layout-commit`.
-- The editor uses the existing layout commit pipeline to write translate into source.
+- The editor uses the existing layout commit pipeline to write Tailwind translate classes (e.g.
+  `translate-x-[12px] translate-y-[34px]`) into source.
 
 This is why import DnD feels consistent with the layout editor: it reuses the same snapping math and translate commit format, but does not toggle layout mode.
 

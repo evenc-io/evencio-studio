@@ -75,6 +75,7 @@ interface SnippetEditorPanelProps {
 	form: UseFormReturn<CustomSnippetValues>
 	mainEditorSource: string
 	onMainSourceChange: (value: string | undefined) => void
+	deferExternalUpdatesWhileFocused?: boolean
 	componentTypeLibs: Array<{ content: string; filePath: string }>
 	componentDefinitionMap: Record<string, SnippetEditorFileId>
 	onDefinitionSelect: (symbol: string, target: string) => void
@@ -192,6 +193,7 @@ export function SnippetEditorPanel({
 	form,
 	mainEditorSource,
 	onMainSourceChange,
+	deferExternalUpdatesWhileFocused = true,
 	componentTypeLibs,
 	componentDefinitionMap,
 	onDefinitionSelect,
@@ -541,6 +543,7 @@ export function SnippetEditorPanel({
 													onChange={onMainSourceChange}
 													language="typescript"
 													path="Snippet.tsx"
+													deferExternalUpdatesWhileFocused={deferExternalUpdatesWhileFocused}
 													extraLibs={componentTypeLibs}
 													definitionMap={componentDefinitionMap}
 													onDefinitionSelect={onDefinitionSelect}
@@ -572,6 +575,7 @@ export function SnippetEditorPanel({
 										onChange={onComponentSourceChange}
 										language="typescript"
 										path={activeComponentFileName ?? "Component.tsx"}
+										deferExternalUpdatesWhileFocused={deferExternalUpdatesWhileFocused}
 										extraLibs={componentTypeLibs}
 										onMount={handleMonacoMount}
 										height="100%"
@@ -598,6 +602,7 @@ export function SnippetEditorPanel({
 													onChange={field.onChange}
 													language="json"
 													path="props.schema.json"
+													deferExternalUpdatesWhileFocused={deferExternalUpdatesWhileFocused}
 													height="100%"
 													className="h-full bg-neutral-50"
 													readOnly
@@ -626,6 +631,7 @@ export function SnippetEditorPanel({
 													onChange={field.onChange}
 													language="json"
 													path="default.props.json"
+													deferExternalUpdatesWhileFocused={deferExternalUpdatesWhileFocused}
 													height="100%"
 													className="h-full bg-neutral-50"
 													readOnly

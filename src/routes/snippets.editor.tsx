@@ -171,7 +171,6 @@ function NewSnippetPage() {
 	const [layersSnapshot, setLayersSnapshot] = useState<PreviewLayerSnapshot | null>(null)
 	const [layersError, setLayersError] = useState<string | null>(null)
 	const [layersRequestToken, setLayersRequestToken] = useState(0)
-	const [suppressNextRenderToken, setSuppressNextRenderToken] = useState(0)
 	const [componentTreeSelection, setComponentTreeSelection] =
 		useState<PreviewSourceLocation | null>(null)
 	const [componentTreeSelectionToken, setComponentTreeSelectionToken] = useState(0)
@@ -290,6 +289,34 @@ function NewSnippetPage() {
 	)
 	const canResetNewSnippet =
 		!isEditing && (hasNewSnippetDraft || normalizedWatchedSource !== normalizedDefaultSource)
+
+	const isNewSnippetAtDefaultValues = useCallback(() => {
+		const values = form.getValues()
+		return (
+			normalizeNewlines(values.source ?? "") === normalizedDefaultSource &&
+			(values.title ?? "") === (defaultSnippetValues.title ?? "") &&
+			(values.description ?? "") === (defaultSnippetValues.description ?? "") &&
+			values.scope === defaultSnippetValues.scope &&
+			(values.licenseName ?? "") === (defaultSnippetValues.licenseName ?? "") &&
+			(values.licenseId ?? "") === (defaultSnippetValues.licenseId ?? "") &&
+			(values.licenseUrl ?? "") === (defaultSnippetValues.licenseUrl ?? "") &&
+			Boolean(values.attributionRequired) === Boolean(defaultSnippetValues.attributionRequired) &&
+			(values.attributionText ?? "") === (defaultSnippetValues.attributionText ?? "") &&
+			(values.attributionUrl ?? "") === (defaultSnippetValues.attributionUrl ?? "") &&
+			(values.viewportPreset ?? CUSTOM_PRESET_ID) === defaultSnippetValues.viewportPreset &&
+			(values.viewportWidth ?? DEFAULT_PREVIEW_DIMENSIONS.width) ===
+				defaultSnippetValues.viewportWidth &&
+			(values.viewportHeight ?? DEFAULT_PREVIEW_DIMENSIONS.height) ===
+				defaultSnippetValues.viewportHeight
+		)
+	}, [defaultSnippetValues, form, normalizedDefaultSource])
+
+	useEffect(() => {
+		if (isEditing) return
+		if (!hasNewSnippetDraft) return
+		if (!isNewSnippetAtDefaultValues()) return
+		void deleteDraft(NEW_SNIPPET_DRAFT_ID).catch(() => {})
+	}, [deleteDraft, hasNewSnippetDraft, isEditing, isNewSnippetAtDefaultValues])
 	const isSnippetListLoading = isLibraryLoading
 	const disabledScopes = useMemo<AssetScope[]>(() => {
 		if (!isEditing || !editAsset) return []
@@ -732,9 +759,6 @@ function NewSnippetPage() {
 		lineMapSegments,
 		forceEnabled: layoutMode,
 	})
-	const handleLayoutCommitApplied = useCallback(() => {
-		setSuppressNextRenderToken((prev) => prev + 1)
-	}, [])
 	const {
 		inspectTextEdit,
 		inspectContextMenu,
@@ -760,7 +784,6 @@ function NewSnippetPage() {
 		layoutMode,
 		isExamplePreviewActive,
 		inspectEnabled,
-		onLayoutCommitApplied: handleLayoutCommitApplied,
 	})
 
 	const setSnippetSource = useCallback(
@@ -1211,6 +1234,7 @@ function NewSnippetPage() {
 									form={form}
 									mainEditorSource={mainEditorSource}
 									onMainSourceChange={handleMainSourceChange}
+									deferExternalUpdatesWhileFocused={!layoutMode}
 									componentTypeLibs={componentTypeLibs}
 									componentDefinitionMap={componentDefinitionMap}
 									onDefinitionSelect={handleDefinitionSelect}
@@ -1305,7 +1329,6 @@ function NewSnippetPage() {
 												layoutSnapEnabled={layoutSnapEnabled}
 												layoutSnapGrid={layoutSnapGrid}
 												onLayoutCommit={handleLayoutCommit}
-												suppressNextRenderToken={suppressNextRenderToken}
 												onImportAssetRemove={
 													previewMode === "imports" ? handleImportAssetRemove : undefined
 												}
