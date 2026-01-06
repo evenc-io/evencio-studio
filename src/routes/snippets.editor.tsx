@@ -289,6 +289,34 @@ function NewSnippetPage() {
 	)
 	const canResetNewSnippet =
 		!isEditing && (hasNewSnippetDraft || normalizedWatchedSource !== normalizedDefaultSource)
+
+	const isNewSnippetAtDefaultValues = useCallback(() => {
+		const values = form.getValues()
+		return (
+			normalizeNewlines(values.source ?? "") === normalizedDefaultSource &&
+			(values.title ?? "") === (defaultSnippetValues.title ?? "") &&
+			(values.description ?? "") === (defaultSnippetValues.description ?? "") &&
+			values.scope === defaultSnippetValues.scope &&
+			(values.licenseName ?? "") === (defaultSnippetValues.licenseName ?? "") &&
+			(values.licenseId ?? "") === (defaultSnippetValues.licenseId ?? "") &&
+			(values.licenseUrl ?? "") === (defaultSnippetValues.licenseUrl ?? "") &&
+			Boolean(values.attributionRequired) === Boolean(defaultSnippetValues.attributionRequired) &&
+			(values.attributionText ?? "") === (defaultSnippetValues.attributionText ?? "") &&
+			(values.attributionUrl ?? "") === (defaultSnippetValues.attributionUrl ?? "") &&
+			(values.viewportPreset ?? CUSTOM_PRESET_ID) === defaultSnippetValues.viewportPreset &&
+			(values.viewportWidth ?? DEFAULT_PREVIEW_DIMENSIONS.width) ===
+				defaultSnippetValues.viewportWidth &&
+			(values.viewportHeight ?? DEFAULT_PREVIEW_DIMENSIONS.height) ===
+				defaultSnippetValues.viewportHeight
+		)
+	}, [defaultSnippetValues, form, normalizedDefaultSource])
+
+	useEffect(() => {
+		if (isEditing) return
+		if (!hasNewSnippetDraft) return
+		if (!isNewSnippetAtDefaultValues()) return
+		void deleteDraft(NEW_SNIPPET_DRAFT_ID).catch(() => {})
+	}, [deleteDraft, hasNewSnippetDraft, isEditing, isNewSnippetAtDefaultValues])
 	const isSnippetListLoading = isLibraryLoading
 	const disabledScopes = useMemo<AssetScope[]>(() => {
 		if (!isEditing || !editAsset) return []

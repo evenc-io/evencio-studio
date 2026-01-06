@@ -153,10 +153,10 @@ function MonacoEditor({
 	)
 
 	const handleChange = (newValue?: string) => {
-		if (onChange && newValue !== undefined) {
-			lastValueRef.current = newValue
-			onChange(newValue)
-		}
+		if (!onChange || newValue === undefined) return
+		if (newValue === lastValueRef.current) return
+		lastValueRef.current = newValue
+		onChange(newValue)
 	}
 
 	const clearEditorDisposables = useCallback(() => {

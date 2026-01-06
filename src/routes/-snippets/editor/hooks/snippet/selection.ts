@@ -142,6 +142,7 @@ export function useSnippetSelection(
 	const newDraftAppliedRef = useRef(false)
 	const selectionTokenRef = useRef(0)
 	const draftAutosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+	const draftAutosaveTokenRef = useRef(0)
 	const suppressDraftAutosaveRef = useRef(false)
 	const pendingSnippetReadyRef = useRef<{ draftId: string; source: string } | null>(null)
 	const [snippetReadyDraftId, setSnippetReadyDraftId] = useState<string | null>(null)
@@ -174,6 +175,7 @@ export function useSnippetSelection(
 				clearTimeout(draftAutosaveTimerRef.current)
 				draftAutosaveTimerRef.current = null
 			}
+			draftAutosaveTokenRef.current += 1
 			setError(null)
 			setComponentTreeSelectedId(null)
 			setComponentTreeSelection(null)
@@ -183,6 +185,7 @@ export function useSnippetSelection(
 			resetComponentExports()
 			resetAnalysis()
 			form.reset(values, { keepDirty: false, keepTouched: false })
+			isDirtyRef.current = false
 			resetHistory(values.source ?? "", optionsOverride?.historyLabel ?? "Loaded snippet")
 			setOpenFiles(optionsOverride?.openFiles ?? SNIPPET_FILES.map((file) => file.id))
 			setActiveFile(optionsOverride?.activeFile ?? "source")
@@ -329,6 +332,30 @@ export function useSnippetSelection(
 		templateAppliedRef.current = false
 	}, [defaultSnippetValues, resetSnippetState, templateAppliedRef])
 
+	const isNewSnippetAtDefaultValues = useCallback(() => {
+		const values = form.getValues()
+		return (
+			normalizeNewlines(values.source ?? "") ===
+				normalizeNewlines(defaultSnippetValues.source ?? "") &&
+			(values.title ?? "") === (defaultSnippetValues.title ?? "") &&
+			(values.description ?? "") === (defaultSnippetValues.description ?? "") &&
+			values.scope === defaultSnippetValues.scope &&
+			(values.licenseName ?? "") === (defaultSnippetValues.licenseName ?? "") &&
+			(values.licenseId ?? "") === (defaultSnippetValues.licenseId ?? "") &&
+			(values.licenseUrl ?? "") === (defaultSnippetValues.licenseUrl ?? "") &&
+			Boolean(values.attributionRequired) === Boolean(defaultSnippetValues.attributionRequired) &&
+			(values.attributionText ?? "") === (defaultSnippetValues.attributionText ?? "") &&
+			(values.attributionUrl ?? "") === (defaultSnippetValues.attributionUrl ?? "") &&
+			(values.viewportPreset ?? CUSTOM_PRESET_ID) === defaultSnippetValues.viewportPreset &&
+			(values.viewportWidth ?? DEFAULT_PREVIEW_DIMENSIONS.width) ===
+				defaultSnippetValues.viewportWidth &&
+			(values.viewportHeight ?? DEFAULT_PREVIEW_DIMENSIONS.height) ===
+				defaultSnippetValues.viewportHeight &&
+			(values.propsSchema ?? "") === (defaultSnippetValues.propsSchema ?? "") &&
+			(values.defaultProps ?? "") === (defaultSnippetValues.defaultProps ?? "")
+		)
+	}, [defaultSnippetValues, form])
+
 	const applySnippetSelection = useCallback(
 		async (snippetId: string | null): Promise<boolean> => {
 			const { isStale } = nextSelectionToken(selectionTokenRef)
@@ -459,12 +486,16 @@ export function useSnippetSelection(
 		if (draftAutosaveTimerRef.current) {
 			clearTimeout(draftAutosaveTimerRef.current)
 		}
+		draftAutosaveTokenRef.current += 1
+		const token = draftAutosaveTokenRef.current
 		draftAutosaveTimerRef.current = setTimeout(() => {
 			draftAutosaveTimerRef.current = null
+			if (draftAutosaveTokenRef.current !== token) return
 			if (!isDirtyRef.current) return
+			if (currentDraftId === NEW_SNIPPET_DRAFT_ID && isNewSnippetAtDefaultValues()) return
 			void saveDraft(buildDraftRecord(currentDraftId))
 		}, 1200)
-	}, [buildDraftRecord, currentDraftId, saveDraft])
+	}, [buildDraftRecord, currentDraftId, isNewSnippetAtDefaultValues, saveDraft])
 
 	useEffect(() => {
 		const subscription = form.watch(() => {
@@ -476,6 +507,7 @@ export function useSnippetSelection(
 	useEffect(() => {
 		return () => {
 			if (draftAutosaveTimerRef.current) {
+				draftAutosaveTokenRef.current += 1
 				clearTimeout(draftAutosaveTimerRef.current)
 			}
 		}
@@ -488,6 +520,7 @@ export function useSnippetSelection(
 			clearTimeout(draftAutosaveTimerRef.current)
 			draftAutosaveTimerRef.current = null
 		}
+		draftAutosaveTokenRef.current += 1
 	}, [currentDraftId])
 
 	const handleSnippetSelect = useCallback(
@@ -501,7 +534,10 @@ export function useSnippetSelection(
 				clearTimeout(draftAutosaveTimerRef.current)
 				draftAutosaveTimerRef.current = null
 			}
-			void saveDraft(buildDraftRecord(currentDraftId))
+			draftAutosaveTokenRef.current += 1
+			if (currentDraftId !== NEW_SNIPPET_DRAFT_ID || !isNewSnippetAtDefaultValues()) {
+				void saveDraft(buildDraftRecord(currentDraftId))
+			}
 			editAppliedRef.current = null
 			newDraftAppliedRef.current = false
 			invalidateSelectionToken(selectionTokenRef)
@@ -511,7 +547,7 @@ export function useSnippetSelection(
 			}
 			navigate({ to: "/snippets/editor", search: {} })
 		},
-		[buildDraftRecord, currentDraftId, navigate, saveDraft, setError],
+		[buildDraftRecord, currentDraftId, isNewSnippetAtDefaultValues, navigate, saveDraft, setError],
 	)
 
 	const cancelPendingSelection = useCallback(
@@ -529,6 +565,7 @@ export function useSnippetSelection(
 			if (!preserveDraftAutosave && draftAutosaveTimerRef.current) {
 				clearTimeout(draftAutosaveTimerRef.current)
 				draftAutosaveTimerRef.current = null
+				draftAutosaveTokenRef.current += 1
 			}
 		},
 		[currentDraftId, editAssetId, isEditing],
