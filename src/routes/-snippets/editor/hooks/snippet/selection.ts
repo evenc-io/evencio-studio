@@ -562,10 +562,12 @@ export function useSnippetSelection(
 			} else if (editAssetId) {
 				editAppliedRef.current = editAssetId
 			}
-			if (!preserveDraftAutosave && draftAutosaveTimerRef.current) {
-				clearTimeout(draftAutosaveTimerRef.current)
-				draftAutosaveTimerRef.current = null
+			if (!preserveDraftAutosave) {
 				draftAutosaveTokenRef.current += 1
+				if (draftAutosaveTimerRef.current) {
+					clearTimeout(draftAutosaveTimerRef.current)
+					draftAutosaveTimerRef.current = null
+				}
 			}
 		},
 		[currentDraftId, editAssetId, isEditing],
