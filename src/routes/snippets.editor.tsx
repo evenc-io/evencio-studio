@@ -65,6 +65,7 @@ import {
 	DEFAULT_DEFAULT_PROPS,
 	DEFAULT_PROPS_SCHEMA,
 	type ExampleFilterId,
+	findPreset,
 	STARTER_SOURCE,
 } from "@/routes/-snippets/editor/constants"
 import { useSnippetAnalysis } from "@/routes/-snippets/editor/hooks/snippet/analysis"
@@ -157,7 +158,9 @@ const getDefaultSnippetValues = (): CustomSnippetValues => ({
 	attributionRequired: false,
 	attributionText: "",
 	attributionUrl: "",
-	viewportPreset: CUSTOM_PRESET_ID,
+	viewportPreset:
+		findPreset(DEFAULT_PREVIEW_DIMENSIONS.width, DEFAULT_PREVIEW_DIMENSIONS.height)?.id ??
+		CUSTOM_PRESET_ID,
 	viewportWidth: DEFAULT_PREVIEW_DIMENSIONS.width,
 	viewportHeight: DEFAULT_PREVIEW_DIMENSIONS.height,
 	source: STARTER_SOURCE,
