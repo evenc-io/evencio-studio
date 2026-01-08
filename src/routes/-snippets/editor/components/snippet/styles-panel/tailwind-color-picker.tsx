@@ -192,7 +192,7 @@ export function TailwindColorPicker({
 				<ChevronDown className="h-4 w-4 text-neutral-500" />
 			</button>
 
-			<DialogContent className="sm:max-w-4xl p-4 shadow-none">
+			<DialogContent className="sm:max-w-4xl p-4 shadow-none flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden">
 				<DialogHeader>
 					<DialogTitle>{title}</DialogTitle>
 					<DialogDescription>{description}</DialogDescription>
@@ -225,7 +225,9 @@ export function TailwindColorPicker({
 					{value.trim() && derivedInfo ? (
 						<p className="text-xs text-neutral-500">{derivedInfo.opacityLabel}</p>
 					) : null}
+				</div>
 
+				<div className="flex-1 space-y-3 overflow-y-auto pr-1">
 					<div className="rounded-md border border-neutral-200 bg-white">
 						<div className="border-b border-neutral-200 bg-neutral-50 px-3 py-2">
 							<p className="text-xs font-medium text-neutral-700">Special</p>
@@ -246,56 +248,56 @@ export function TailwindColorPicker({
 							{filteredFamilies.length === 0 ? (
 								<div className="py-6 text-sm text-neutral-500">No color families match.</div>
 							) : (
-								<div className="space-y-1">
-									<div
-										className="grid items-end gap-1 justify-items-center"
-										style={{ gridTemplateColumns }}
-									>
-										<div className="text-[11px] font-semibold uppercase tracking-widest text-neutral-400">
-											&nbsp;
-										</div>
-										{filteredFamilies.map((family) => (
-											<div
-												key={family}
-												className="flex justify-center"
-												title={formatFamilyLabel(family)}
-											>
-												<span
-													className="text-[10px] font-semibold leading-none text-neutral-400"
-													style={{
-														writingMode: "vertical-rl",
-														transform: "rotate(180deg)",
-													}}
-												>
-													{formatFamilyLabel(family)}
-												</span>
-											</div>
-										))}
+								<div
+									className="grid gap-1 justify-items-center overflow-x-auto pb-1"
+									style={{ gridTemplateColumns }}
+								>
+									<div className="self-end text-[11px] font-semibold uppercase tracking-widest text-neutral-400">
+										&nbsp;
 									</div>
-
-									{TAILWIND_COLOR_SHADES.map((shade) => (
+									{filteredFamilies.map((family) => (
 										<div
-											key={shade}
-											className="grid items-center gap-1 justify-items-center"
-											style={{ gridTemplateColumns }}
+											key={family}
+											className="self-end flex justify-center"
+											title={formatFamilyLabel(family)}
 										>
-											<div className="pr-1 text-right text-[10px] font-semibold text-neutral-400">
-												{shade}
-											</div>
-											{filteredFamilies.map((family) => {
-												const cssValue = getTailwindPaletteColorValue(
-													family as TailwindColorFamily,
-													shade as TailwindColorShade,
-												)
-												const token = `${family}-${shade}`
-												return renderSwatch(token, {
-													label: token,
-													color: cssValue,
-													className: "w-full max-w-8 aspect-square",
-												})
-											})}
+											<span
+												className="text-[10px] font-semibold leading-none text-neutral-400"
+												style={{
+													writingMode: "vertical-rl",
+													transform: "rotate(180deg)",
+												}}
+											>
+												{formatFamilyLabel(family)}
+											</span>
 										</div>
 									))}
+
+									{TAILWIND_COLOR_SHADES.flatMap((shade) => {
+										const shadeLabel = (
+											<div
+												key={`shade-${shade}`}
+												className="justify-self-end pr-1 text-right text-[10px] font-semibold text-neutral-400"
+											>
+												{shade}
+											</div>
+										)
+
+										const swatches = filteredFamilies.map((family) => {
+											const cssValue = getTailwindPaletteColorValue(
+												family as TailwindColorFamily,
+												shade as TailwindColorShade,
+											)
+											const token = `${family}-${shade}`
+											return renderSwatch(token, {
+												label: token,
+												color: cssValue,
+												className: "w-full max-w-8 aspect-square",
+											})
+										})
+
+										return [shadeLabel, ...swatches]
+									})}
 								</div>
 							)}
 						</div>
