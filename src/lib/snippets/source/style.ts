@@ -699,11 +699,12 @@ const formatTailwindColorClass = (prefix: string, value: string) => {
 
 const formatBorderWidthClass = (value: number) => {
 	if (!Number.isFinite(value)) return null
-	const rounded = Math.round(value)
-	if (rounded <= 0) return null
-	if (rounded === 1) return "border"
-	if (rounded === 2 || rounded === 4 || rounded === 8) return `border-${rounded}`
-	return `border-[${rounded}px]`
+	const formatted = formatNumber(value)
+	const numeric = Number(formatted)
+	if (numeric <= 0) return null
+	if (numeric === 1) return "border"
+	if (numeric === 2 || numeric === 4 || numeric === 8) return `border-${numeric}`
+	return `border-[${formatted}px]`
 }
 
 const formatRadiusClass = (value: number | string) => {
@@ -714,9 +715,10 @@ const formatRadiusClass = (value: number | string) => {
 		return `rounded-${trimmed}`
 	}
 	if (!Number.isFinite(value)) return null
-	const rounded = Math.max(0, Math.round(value))
-	if (rounded <= 0) return null
-	return `rounded-[${rounded}px]`
+	const formatted = formatNumber(value)
+	const numeric = Number(formatted)
+	if (numeric <= 0) return null
+	return `rounded-[${formatted}px]`
 }
 
 const formatFontSizeClass = (value: number | string) => {
@@ -726,9 +728,10 @@ const formatFontSizeClass = (value: number | string) => {
 		return `text-${trimmed}`
 	}
 	if (!Number.isFinite(value)) return null
-	const rounded = Math.max(0, Math.round(value))
-	if (rounded <= 0) return null
-	return `text-[${rounded}px]`
+	const formatted = formatNumber(value)
+	const numeric = Number(formatted)
+	if (numeric <= 0) return null
+	return `text-[${formatted}px]`
 }
 
 const formatFontWeightClass = (value: number | string) => {

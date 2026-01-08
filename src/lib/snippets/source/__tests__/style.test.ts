@@ -48,11 +48,23 @@ export const Snip = () => (
 		expect(result.source).not.toContain("font-bold")
 	})
 
+	it("preserves fractional border widths when writing Tailwind classes", async () => {
+		const source = `
+export const Snip = () => (
+  <div className="box border" />
+)
+`.trim()
+		const result = await runStyleUpdate(source, { borderWidth: 1.5 })
+		expect(result.changed).toBe(true)
+		expect(result.source).toContain("border-[1.5px]")
+		expect(result.source).not.toContain("border-2")
+	})
+
 	it("falls back to inline styles when className is dynamic", async () => {
 		const source = `
 import { cn } from "@/lib/utils"
 
-		export const Snip = () => (
+export const Snip = () => (
   <div className={cn("box", true && "bg-red-500")} />
 )
 `.trim()
