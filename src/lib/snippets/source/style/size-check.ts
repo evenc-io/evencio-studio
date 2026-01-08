@@ -27,9 +27,9 @@ const isSizeLikeVarExpression = (expression: string) => {
 	if (!match) return false
 	const inner = match[1]?.trim() ?? ""
 	if (!inner) return false
-	const [rawName, rawFallback] = inner.split(",")
-	const name = rawName?.trim() ?? ""
-	const fallback = rawFallback?.trim() ?? ""
+	const commaIndex = inner.indexOf(",")
+	const name = (commaIndex === -1 ? inner : inner.slice(0, commaIndex)).trim()
+	const fallback = (commaIndex === -1 ? "" : inner.slice(commaIndex + 1)).trim()
 	if (name && COLOR_NAME_HINT_PATTERN.test(name)) return false
 	if (name && SIZE_NAME_HINT_PATTERN.test(name)) return true
 	if (fallback) return isSizeLikeArbitraryValue(fallback)
