@@ -83,6 +83,13 @@ describe("isColorSuffix", () => {
 			expect(isColorSuffix("[-10px]")).toBe(false)
 			expect(isColorSuffix("[-1.5rem]")).toBe(false)
 		})
+
+		it("rejects size-like functions and vars", () => {
+			expect(isColorSuffix("[clamp(1rem,2vw,3rem)]")).toBe(false)
+			expect(isColorSuffix("[calc(1rem+2vw)]")).toBe(false)
+			expect(isColorSuffix("[var(--font-size)]")).toBe(false)
+			expect(isColorSuffix("[length:var(--text-size)]")).toBe(false)
+		})
 	})
 })
 
@@ -130,11 +137,16 @@ describe("isFontSizeClass", () => {
 		expect(isFontSizeClass("text-[44px]")).toBe(true)
 		expect(isFontSizeClass("text-[1.5rem]")).toBe(true)
 		expect(isFontSizeClass("text-[2em]")).toBe(true)
+		expect(isFontSizeClass("text-[clamp(1rem,2vw,3rem)]")).toBe(true)
+		expect(isFontSizeClass("text-[calc(1rem+2vw)]")).toBe(true)
+		expect(isFontSizeClass("text-[var(--font-size)]")).toBe(true)
+		expect(isFontSizeClass("text-[length:var(--text-size)]")).toBe(true)
 	})
 
 	it("does NOT match text color classes", () => {
 		expect(isFontSizeClass("text-red-500")).toBe(false)
 		expect(isFontSizeClass("text-[#ff0000]")).toBe(false)
+		expect(isFontSizeClass("text-[var(--color)]")).toBe(false)
 	})
 })
 
