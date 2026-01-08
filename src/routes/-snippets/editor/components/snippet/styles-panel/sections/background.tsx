@@ -5,9 +5,9 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CollapsibleSection } from "@/routes/-snippets/editor/components/collapsible-section"
-import { PALETTE_OPTIONS, SPECIAL_COLOR_OPTIONS, THEME_COLOR_OPTIONS } from "../constants"
+import { TailwindColorPicker } from "../tailwind-color-picker"
 import type { ColorDraft, ScheduleApplyFn, StylesPanelExpandedState } from "../types"
-import { ensureOption, normalizeHexColor } from "../utils"
+import { normalizeHexColor } from "../utils"
 
 type BackgroundSectionProps = {
 	open: boolean
@@ -75,49 +75,26 @@ export function BackgroundSection({
 									<TabsTrigger value="custom">Custom</TabsTrigger>
 								</TabsList>
 								<TabsContent value="token">
-									<select
+									<TailwindColorPicker
 										value={draft.token}
-										onChange={(event) => {
-											const next = event.target.value
+										onValueChange={(next) => {
 											setDraft((prev) => ({ ...prev, token: next, mode: "token" }))
 											scheduleApply({ backgroundColor: next || null }, "Update background")
 										}}
-										onFocus={() => {
-											focusedFieldRef.current = "backgroundColor-token"
-										}}
-										onBlur={() => {
+										disabled={!canApply}
+										buttonClassName={baseSelectClassName}
+										title="Background color"
+										description="Select a Tailwind v4 background token like emerald-500."
+										onOpenChange={(nextOpen) => {
+											if (nextOpen) {
+												focusedFieldRef.current = "backgroundColor-token"
+												return
+											}
 											if (focusedFieldRef.current === "backgroundColor-token") {
 												focusedFieldRef.current = null
 											}
 										}}
-										className={baseSelectClassName}
-										disabled={!canApply}
-									>
-										<option value="">Select…</option>
-										<optgroup label="Theme">
-											{ensureOption(THEME_COLOR_OPTIONS, draft.token, "Custom").map((option) => (
-												<option key={option.value} value={option.value}>
-													{option.label}
-												</option>
-											))}
-										</optgroup>
-										<optgroup label="Palette">
-											{PALETTE_OPTIONS.flatMap((group) =>
-												group.options.map((option) => (
-													<option key={option.value} value={option.value}>
-														{option.label}
-													</option>
-												)),
-											)}
-										</optgroup>
-										<optgroup label="Special">
-											{SPECIAL_COLOR_OPTIONS.map((option) => (
-												<option key={option.value} value={option.value}>
-													{option.label}
-												</option>
-											))}
-										</optgroup>
-									</select>
+									/>
 								</TabsContent>
 								<TabsContent value="custom">
 									<div className="flex items-center gap-2">

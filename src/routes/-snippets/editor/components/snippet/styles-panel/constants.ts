@@ -1,52 +1,5 @@
 export type SelectOption = { value: string; label: string }
 
-export const THEME_COLOR_OPTIONS: SelectOption[] = [
-	{ value: "background", label: "background" },
-	{ value: "foreground", label: "foreground" },
-	{ value: "card", label: "card" },
-	{ value: "card-foreground", label: "card-foreground" },
-	{ value: "popover", label: "popover" },
-	{ value: "popover-foreground", label: "popover-foreground" },
-	{ value: "primary", label: "primary" },
-	{ value: "primary-foreground", label: "primary-foreground" },
-	{ value: "secondary", label: "secondary" },
-	{ value: "secondary-foreground", label: "secondary-foreground" },
-	{ value: "muted", label: "muted" },
-	{ value: "muted-foreground", label: "muted-foreground" },
-	{ value: "accent", label: "accent" },
-	{ value: "accent-foreground", label: "accent-foreground" },
-	{ value: "destructive", label: "destructive" },
-	{ value: "border", label: "border" },
-	{ value: "input", label: "input" },
-	{ value: "ring", label: "ring" },
-	{ value: "sidebar", label: "sidebar" },
-	{ value: "sidebar-foreground", label: "sidebar-foreground" },
-	{ value: "sidebar-primary", label: "sidebar-primary" },
-	{ value: "sidebar-primary-foreground", label: "sidebar-primary-foreground" },
-	{ value: "sidebar-accent", label: "sidebar-accent" },
-	{ value: "sidebar-accent-foreground", label: "sidebar-accent-foreground" },
-	{ value: "sidebar-border", label: "sidebar-border" },
-	{ value: "sidebar-ring", label: "sidebar-ring" },
-]
-
-const buildPaletteOptions = (prefix: string) =>
-	([50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950] as const).map((step) => ({
-		value: `${prefix}-${step}`,
-		label: `${prefix}-${step}`,
-	}))
-
-export const PALETTE_OPTIONS: Array<{ label: string; options: SelectOption[] }> = [
-	{ label: "neutral", options: buildPaletteOptions("neutral") },
-	{ label: "slate", options: buildPaletteOptions("slate") },
-]
-
-export const SPECIAL_COLOR_OPTIONS: SelectOption[] = [
-	{ value: "transparent", label: "transparent" },
-	{ value: "current", label: "current" },
-	{ value: "black", label: "black" },
-	{ value: "white", label: "white" },
-]
-
 export const BORDER_WIDTH_SCALE: Array<{ value: number; label: string }> = [
 	{ value: 1, label: "1px (border)" },
 	{ value: 2, label: "2px (border-2)" },
