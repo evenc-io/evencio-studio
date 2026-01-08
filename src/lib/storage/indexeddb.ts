@@ -155,7 +155,11 @@ const migrateLegacyDbIfNeeded = async () => {
 				runMigrations(db as unknown as IDBPDatabase, oldVersion)
 			},
 		})
-		newDb = await openDb()
+		newDb = await openDB<EvencioDBSchema>(DATABASE_NAME, CURRENT_SCHEMA_VERSION, {
+			upgrade(db, oldVersion) {
+				runMigrations(db as unknown as IDBPDatabase, oldVersion)
+			},
+		})
 
 		for (const storeName of STORE_NAMES) {
 			// Skip stores that don't exist in legacy database (e.g., if migration failed)
