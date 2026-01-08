@@ -5,13 +5,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { CollapsibleSection } from "@/routes/-snippets/editor/components/collapsible-section"
-import {
-	FONT_SIZE_SCALE,
-	FONT_WEIGHT_SCALE,
-	PALETTE_OPTIONS,
-	SPECIAL_COLOR_OPTIONS,
-	THEME_COLOR_OPTIONS,
-} from "../constants"
+import { FONT_SIZE_SCALE, FONT_WEIGHT_SCALE } from "../constants"
+import { TailwindColorPicker } from "../tailwind-color-picker"
 import type { ColorDraft, ScheduleApplyFn, StylesPanelExpandedState } from "../types"
 import { ensureOption, normalizeHexColor, parseOptionalNumber } from "../utils"
 
@@ -115,51 +110,26 @@ export function TypeSection({
 									<TabsTrigger value="custom">Custom</TabsTrigger>
 								</TabsList>
 								<TabsContent value="token">
-									<select
+									<TailwindColorPicker
 										value={textColorDraft.token}
-										onChange={(event) => {
-											const next = event.target.value
+										onValueChange={(next) => {
 											setTextColorDraft((prev) => ({ ...prev, token: next, mode: "token" }))
 											scheduleApply({ textColor: next || null }, "Update typography")
 										}}
-										onFocus={() => {
-											focusedFieldRef.current = "textColor-token"
-										}}
-										onBlur={() => {
+										disabled={!canApply}
+										buttonClassName={baseSelectClassName}
+										title="Text color"
+										description="Select a Tailwind v4 text token like emerald-500."
+										onOpenChange={(nextOpen) => {
+											if (nextOpen) {
+												focusedFieldRef.current = "textColor-token"
+												return
+											}
 											if (focusedFieldRef.current === "textColor-token") {
 												focusedFieldRef.current = null
 											}
 										}}
-										className={baseSelectClassName}
-										disabled={!canApply}
-									>
-										<option value="">Select…</option>
-										<optgroup label="Theme">
-											{ensureOption(THEME_COLOR_OPTIONS, textColorDraft.token, "Custom").map(
-												(option) => (
-													<option key={option.value} value={option.value}>
-														{option.label}
-													</option>
-												),
-											)}
-										</optgroup>
-										<optgroup label="Palette">
-											{PALETTE_OPTIONS.flatMap((group) =>
-												group.options.map((option) => (
-													<option key={option.value} value={option.value}>
-														{option.label}
-													</option>
-												)),
-											)}
-										</optgroup>
-										<optgroup label="Special">
-											{SPECIAL_COLOR_OPTIONS.map((option) => (
-												<option key={option.value} value={option.value}>
-													{option.label}
-												</option>
-											))}
-										</optgroup>
-									</select>
+									/>
 								</TabsContent>
 								<TabsContent value="custom">
 									<div className="flex items-center gap-2">

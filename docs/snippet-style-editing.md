@@ -18,6 +18,11 @@ Supported style groups (v1):
 - Radius: `borderRadius`
 - Type: `textColor`, `fontSize`, `fontWeight`
 
+Color editing notes:
+
+- The UI picker targets **Tailwind v4 palette tokens** (e.g. `emerald-500`) and lives in a modal for fast scanning.
+- Tailwind **semantic theme tokens** (e.g. `bg-background`, `text-foreground`) are still supported by read/write logic, but are **not offered** in the picker UI (existing values will still show as the current token).
+
 ## TRACE (User → Source → Preview)
 
 1. User selects an element in the preview (context menu or layout select).
@@ -84,7 +89,9 @@ Structure:
 
 - `panel.tsx`: orchestration (state, debounced apply, syncing from reads)
 - `sections/*`: grouped controls (Background/Border/Radius/Type)
-- `constants.ts`: option lists (Tailwind v4 tokens + small palette subset)
+- `constants.ts`: option lists (border/radius/type scales)
+- `tailwind-colors.ts`: Tailwind v4 palette metadata + swatch helpers
+- `tailwind-color-picker.tsx`: modal-based Tailwind palette picker (replaces `<select>` lists)
 - `utils.ts`: parsing helpers (hex normalization, number parsing, select option helpers)
 - `types.ts`: shared types across UI modules
 
@@ -125,4 +132,3 @@ To add a new editable property:
 - Only intrinsic HTML tags are editable.
 - Dynamic `className` expressions are treated as code-only.
 - Style-read focuses on supported properties only; it is not a full computed-style inspector.
-
