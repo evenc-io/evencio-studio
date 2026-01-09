@@ -19,10 +19,12 @@ export function SnippetStylesPanel({
 	state,
 	isReading = false,
 	isApplying = false,
+	density = "default",
 	onClose,
 	onApply,
 }: SnippetStylesPanelProps) {
 	const panelRef = useRef<HTMLElement | null>(null)
+	const isCompact = density === "compact"
 	const { mode, setMode, width, resetWidth, onResizeStart } = useStylesPanelPreferences({
 		panelRef,
 		open,
@@ -122,6 +124,7 @@ export function SnippetStylesPanel({
 		target,
 		state,
 		onApply,
+		density,
 	})
 
 	return (
@@ -161,6 +164,7 @@ export function SnippetStylesPanel({
 							aria-label="Styles panel mode"
 							value={mode}
 							onValueChange={setMode}
+							size={isCompact ? "compact" : "default"}
 							options={[
 								{ value: "basic", label: "Basic" },
 								{ value: "advanced", label: "Advanced" },
@@ -170,12 +174,12 @@ export function SnippetStylesPanel({
 							type="button"
 							variant="ghost"
 							size="icon"
-							className="h-7 w-7"
+							className={cn("h-7 w-7", isCompact && "h-6 w-6")}
 							onClick={onClose}
 							aria-label="Close styles panel"
 							title="Close"
 						>
-							<X className="h-4 w-4" />
+							<X className={cn("h-4 w-4", isCompact && "h-3.5 w-3.5")} />
 						</Button>
 					</div>
 				</div>
@@ -206,6 +210,7 @@ export function SnippetStylesPanel({
 							show={showBackground}
 							canApply={canApply}
 							baseSelectClassName={baseSelectClassName}
+							density={density}
 							draft={backgroundDraft}
 							setDraft={setBackgroundDraft}
 							setExpanded={setExpanded}
@@ -222,6 +227,7 @@ export function SnippetStylesPanel({
 							}
 							canApply={canApply}
 							baseSelectClassName={baseSelectClassName}
+							density={density}
 							showBorderWidth={showBorderWidth}
 							showBorderColor={showBorderColor}
 							hasBorderWidth={hasBorderWidth}
@@ -249,6 +255,7 @@ export function SnippetStylesPanel({
 							show={showRadius}
 							canApply={canApply}
 							baseSelectClassName={baseSelectClassName}
+							density={density}
 							radiusMode={radiusMode}
 							setRadiusMode={setRadiusMode}
 							radiusScale={radiusScale}
@@ -270,6 +277,7 @@ export function SnippetStylesPanel({
 							panelMode={mode}
 							canApply={canApply}
 							baseSelectClassName={baseSelectClassName}
+							density={density}
 							padding={padding}
 							setPadding={setPadding}
 							paddingX={paddingX}
@@ -298,6 +306,7 @@ export function SnippetStylesPanel({
 							panelMode={mode}
 							canApply={canApply}
 							baseSelectClassName={baseSelectClassName}
+							density={density}
 							fontFamily={fontFamily}
 							setFontFamily={setFontFamily}
 							showTextColor={showTextColor}

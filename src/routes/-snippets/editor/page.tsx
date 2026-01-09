@@ -1664,6 +1664,7 @@ export function SnippetsEditorPage({ search }: { search: SnippetsEditorSearch })
 								state={stylesPanelState}
 								isReading={isStylesReading}
 								isApplying={isStylesApplying}
+								density={layoutMode ? "compact" : "default"}
 								onClose={() => setStylesPanelOpen(false)}
 								onApply={applyStyleUpdate}
 							/>

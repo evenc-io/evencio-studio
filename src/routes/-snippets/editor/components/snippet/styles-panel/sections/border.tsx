@@ -4,10 +4,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 import { CollapsibleSection } from "@/routes/-snippets/editor/components/collapsible-section"
 import { BORDER_WIDTH_SCALE } from "../constants"
 import { TailwindColorPicker } from "../tailwind-color-picker"
-import type { ColorDraft, ScheduleApplyFn, StylesPanelExpandedState } from "../types"
+import type {
+	ColorDraft,
+	ScheduleApplyFn,
+	StylesPanelDensity,
+	StylesPanelExpandedState,
+} from "../types"
 import { normalizeHexColor, parseOptionalNumber } from "../utils"
 
 type BorderSectionProps = {
@@ -15,6 +21,7 @@ type BorderSectionProps = {
 	onOpenChange: (open: boolean) => void
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	showBorderWidth: boolean
 	showBorderColor: boolean
 	hasBorderWidth: boolean
@@ -37,6 +44,7 @@ export function BorderSection({
 	onOpenChange,
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	showBorderWidth,
 	showBorderColor,
 	hasBorderWidth,
@@ -53,19 +61,39 @@ export function BorderSection({
 	focusedFieldRef,
 	scheduleApply,
 }: BorderSectionProps) {
+	const isCompact = density === "compact"
+	const stackClassName = cn("space-y-3", isCompact && "space-y-2")
+	const fieldStackClassName = cn("space-y-2", isCompact && "space-y-1.5")
+	const labelClassName = cn("text-xs text-neutral-600", isCompact && "text-[11px]")
+	const tabsListClassName = cn("w-full", isCompact && "h-8")
+	const tabsTriggerClassName = cn(isCompact && "px-2 py-0.5 text-[11px]")
+	const iconButtonClassName = cn(
+		"h-7 w-7 text-neutral-400 hover:text-neutral-700",
+		isCompact && "h-6 w-6",
+	)
+	const iconClassName = cn("h-4 w-4", isCompact && "h-3.5 w-3.5")
+	const inputClassName = cn(isCompact && "h-8 px-2 text-[11px] md:text-[11px]")
+	const swatchInputClassName = cn(
+		"h-9 w-9 rounded-md border border-neutral-200 bg-white p-1",
+		isCompact && "h-8 w-8",
+	)
+	const addButtonClassName = cn(
+		"justify-start px-0 text-neutral-500 hover:text-neutral-900",
+		isCompact && "h-7 text-[11px]",
+	)
 	return (
 		<div data-testid="snippet-styles-section-border">
 			<CollapsibleSection title="Border" open={open} onOpenChange={onOpenChange}>
-				<div className="space-y-3">
+				<div className={stackClassName}>
 					{showBorderWidth ? (
-						<div className="space-y-2">
+						<div className={fieldStackClassName}>
 							<div className="flex items-center justify-between gap-2">
-								<Label className="text-xs text-neutral-600">Width</Label>
+								<Label className={labelClassName}>Width</Label>
 								<Button
 									type="button"
 									variant="ghost"
 									size="icon"
-									className="h-7 w-7 text-neutral-400 hover:text-neutral-700"
+									className={iconButtonClassName}
 									onClick={() => {
 										setExpanded((prev) => ({ ...prev, borderWidth: false }))
 										if (!hasBorderColor) {
@@ -77,16 +105,20 @@ export function BorderSection({
 									aria-label="Remove border width"
 									title="Remove"
 								>
-									<Trash2 className="h-4 w-4" />
+									<Trash2 className={iconClassName} />
 								</Button>
 							</div>
 							<Tabs
 								value={borderWidthMode}
 								onValueChange={(next) => setBorderWidthMode(next === "custom" ? "custom" : "scale")}
 							>
-								<TabsList className="w-full">
-									<TabsTrigger value="scale">Scale</TabsTrigger>
-									<TabsTrigger value="custom">Custom</TabsTrigger>
+								<TabsList className={tabsListClassName}>
+									<TabsTrigger className={tabsTriggerClassName} value="scale">
+										Scale
+									</TabsTrigger>
+									<TabsTrigger className={tabsTriggerClassName} value="custom">
+										Custom
+									</TabsTrigger>
 								</TabsList>
 								<TabsContent value="scale">
 									<select
@@ -153,6 +185,7 @@ export function BorderSection({
 										}}
 										placeholder="1"
 										disabled={!canApply}
+										className={inputClassName}
 										aria-invalid={
 											borderWidthCustom.trim().length > 0 &&
 											parseOptionalNumber(borderWidthCustom) === "invalid"
@@ -168,24 +201,24 @@ export function BorderSection({
 							type="button"
 							variant="ghost"
 							size="sm"
-							className="justify-start px-0 text-neutral-500 hover:text-neutral-900"
+							className={addButtonClassName}
 							onClick={() => setExpanded((prev) => ({ ...prev, borderWidth: true }))}
 							disabled={!canApply}
 						>
-							<Plus className="mr-2 h-4 w-4" />
+							<Plus className={cn("mr-2 h-4 w-4", isCompact && "h-3.5 w-3.5")} />
 							Add border width
 						</Button>
 					)}
 
 					{showBorderColor ? (
-						<div className="space-y-2">
+						<div className={fieldStackClassName}>
 							<div className="flex items-center justify-between gap-2">
-								<Label className="text-xs text-neutral-600">Color</Label>
+								<Label className={labelClassName}>Color</Label>
 								<Button
 									type="button"
 									variant="ghost"
 									size="icon"
-									className="h-7 w-7 text-neutral-400 hover:text-neutral-700"
+									className={iconButtonClassName}
 									onClick={() => {
 										setExpanded((prev) => ({ ...prev, borderColor: false }))
 										if (!hasBorderWidth) {
@@ -197,7 +230,7 @@ export function BorderSection({
 									aria-label="Remove border color"
 									title="Remove"
 								>
-									<Trash2 className="h-4 w-4" />
+									<Trash2 className={iconClassName} />
 								</Button>
 							</div>
 							<Tabs
@@ -209,9 +242,13 @@ export function BorderSection({
 									}))
 								}
 							>
-								<TabsList className="w-full">
-									<TabsTrigger value="token">Token</TabsTrigger>
-									<TabsTrigger value="custom">Custom</TabsTrigger>
+								<TabsList className={tabsListClassName}>
+									<TabsTrigger className={tabsTriggerClassName} value="token">
+										Token
+									</TabsTrigger>
+									<TabsTrigger className={tabsTriggerClassName} value="custom">
+										Custom
+									</TabsTrigger>
 								</TabsList>
 								<TabsContent value="token">
 									<TailwindColorPicker
@@ -256,7 +293,7 @@ export function BorderSection({
 													focusedFieldRef.current = null
 												}
 											}}
-											className="h-9 w-9 rounded-md border border-neutral-200 bg-white p-1"
+											className={swatchInputClassName}
 											disabled={!canApply}
 											aria-label="Pick border color"
 										/>
@@ -292,6 +329,7 @@ export function BorderSection({
 											}}
 											placeholder="#000000"
 											disabled={!canApply}
+											className={inputClassName}
 											aria-invalid={
 												borderColorDraft.hex.trim().length > 0 &&
 												normalizeHexColor(borderColorDraft.hex) === null
@@ -308,11 +346,11 @@ export function BorderSection({
 							type="button"
 							variant="ghost"
 							size="sm"
-							className="justify-start px-0 text-neutral-500 hover:text-neutral-900"
+							className={addButtonClassName}
 							onClick={() => setExpanded((prev) => ({ ...prev, borderColor: true }))}
 							disabled={!canApply}
 						>
-							<Plus className="mr-2 h-4 w-4" />
+							<Plus className={cn("mr-2 h-4 w-4", isCompact && "h-3.5 w-3.5")} />
 							Add border color
 						</Button>
 					)}

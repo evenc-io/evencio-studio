@@ -1,17 +1,19 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 import {
 	FONT_STYLE_OPTIONS,
 	TEXT_ALIGN_OPTIONS,
 	TEXT_DECORATION_OPTIONS,
 	TEXT_TRANSFORM_OPTIONS,
 } from "../../constants"
-import type { ScheduleApplyFn } from "../../types"
+import type { ScheduleApplyFn, StylesPanelDensity } from "../../types"
 
 type FormattingGridProps = {
 	panelMode: "basic" | "advanced"
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	textAlign: string
 	setTextAlign: Dispatch<SetStateAction<string>>
 	textTransform: string
@@ -28,6 +30,7 @@ export function FormattingGrid({
 	panelMode,
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	textAlign,
 	setTextAlign,
 	textTransform,
@@ -40,11 +43,15 @@ export function FormattingGrid({
 	scheduleApply,
 }: FormattingGridProps) {
 	const showAdvanced = panelMode === "advanced"
+	const isCompact = density === "compact"
+	const stackClassName = cn("space-y-3", isCompact && "space-y-2")
+	const gridClassName = cn("grid grid-cols-2 items-center gap-3", isCompact && "gap-2")
+	const labelClassName = cn("text-xs text-neutral-600", isCompact && "text-[11px]")
 
 	return (
-		<div className="space-y-3">
-			<div className="grid grid-cols-2 items-center gap-3">
-				<Label className="text-xs text-neutral-600">Align</Label>
+		<div className={stackClassName}>
+			<div className={gridClassName}>
+				<Label className={labelClassName}>Align</Label>
 				<select
 					aria-label="Text align"
 					value={textAlign}
@@ -74,8 +81,8 @@ export function FormattingGrid({
 
 			{showAdvanced ? (
 				<>
-					<div className="grid grid-cols-2 items-center gap-3">
-						<Label className="text-xs text-neutral-600">Transform</Label>
+					<div className={gridClassName}>
+						<Label className={labelClassName}>Transform</Label>
 						<select
 							aria-label="Text transform"
 							value={textTransform}
@@ -105,8 +112,8 @@ export function FormattingGrid({
 						</select>
 					</div>
 
-					<div className="grid grid-cols-2 items-center gap-3">
-						<Label className="text-xs text-neutral-600">Style</Label>
+					<div className={gridClassName}>
+						<Label className={labelClassName}>Style</Label>
 						<select
 							aria-label="Font style"
 							value={fontStyle}
@@ -136,8 +143,8 @@ export function FormattingGrid({
 						</select>
 					</div>
 
-					<div className="grid grid-cols-2 items-center gap-3">
-						<Label className="text-xs text-neutral-600">Decoration</Label>
+					<div className={gridClassName}>
+						<Label className={labelClassName}>Decoration</Label>
 						<select
 							aria-label="Text decoration"
 							value={textDecoration}

@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { CollapsibleSection } from "@/routes/-snippets/editor/components/collapsible-section"
 import { SPACING_SCALE } from "../constants"
 import { SegmentedControl } from "../segmented-control"
-import type { ScheduleApplyFn } from "../types"
+import type { ScheduleApplyFn, StylesPanelDensity } from "../types"
 import { ensureOption } from "../utils"
 
 type SpacingSectionProps = {
@@ -14,6 +14,7 @@ type SpacingSectionProps = {
 	panelMode: "basic" | "advanced"
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	padding: string
 	setPadding: Dispatch<SetStateAction<string>>
 	paddingX: string
@@ -47,6 +48,7 @@ export function SpacingSection({
 	panelMode,
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	padding,
 	setPadding,
 	paddingX,
@@ -64,7 +66,25 @@ export function SpacingSection({
 	focusedFieldRef,
 	scheduleApply,
 }: SpacingSectionProps) {
-	const compactSelectClassName = cn(baseSelectClassName, "h-8 px-2 text-xs")
+	const isCompact = density === "compact"
+	const compactSelectClassName = cn(
+		baseSelectClassName,
+		isCompact ? "h-7 px-2 text-[10px]" : "h-8 px-2 text-xs",
+	)
+	const stackClassName = cn("space-y-3", isCompact && "space-y-2")
+	const helperTextClassName = cn("text-[11px] text-neutral-400", isCompact && "text-[10px]")
+	const labelClassName = cn("text-xs text-neutral-600", isCompact && "text-[11px]")
+	const gridGapClassName = cn("grid grid-cols-2 gap-3", isCompact && "gap-2")
+	const fieldGapClassName = cn("space-y-1.5", isCompact && "space-y-1")
+	const sidePaddingCardClassName = cn(
+		"rounded-md border border-neutral-200 bg-neutral-50 p-3",
+		isCompact && "p-2.5",
+	)
+	const sideGridClassName = cn("grid grid-cols-3 gap-2", isCompact && "gap-1.5")
+	const centerLabelClassName = cn(
+		"flex items-center justify-center rounded-md border border-dashed border-neutral-200 bg-white px-2 text-[11px] text-neutral-400",
+		isCompact && "text-[10px]",
+	)
 
 	const buildOptions = (prefix: string, currentValue: string) =>
 		ensureOption(SPACING_SCALE, currentValue, "Custom").map((option) => ({
@@ -235,15 +255,16 @@ export function SpacingSection({
 	return (
 		<div data-testid="snippet-styles-section-spacing">
 			<CollapsibleSection title="Spacing" open={open} onOpenChange={onOpenChange}>
-				<div className="space-y-3">
+				<div className={stackClassName}>
 					{panelMode === "advanced" ? (
 						<div className="flex items-center justify-between gap-3">
-							<Label className="text-xs text-neutral-600">Padding</Label>
+							<Label className={labelClassName}>Padding</Label>
 							<SegmentedControl
 								aria-label="Padding mode"
 								value={paddingMode}
 								onValueChange={handleModeChange}
 								disabled={!canApply}
+								size={isCompact ? "compact" : "default"}
 								options={[
 									{ value: "all", label: "All" },
 									{ value: "axis", label: "X / Y" },
@@ -253,16 +274,14 @@ export function SpacingSection({
 						</div>
 					) : (
 						<div className="space-y-1">
-							<Label className="text-xs text-neutral-600">Padding</Label>
-							<p className="text-[11px] text-neutral-400">
-								Switch to Advanced for axis/per-side padding.
-							</p>
+							<Label className={labelClassName}>Padding</Label>
+							<p className={helperTextClassName}>Switch to Advanced for axis/per-side padding.</p>
 						</div>
 					)}
 
 					{paddingMode === "axis" && panelMode === "advanced" ? (
-						<div className="grid grid-cols-2 gap-3">
-							<div className="space-y-1.5">
+						<div className={gridGapClassName}>
+							<div className={fieldGapClassName}>
 								<div className="text-[11px] font-medium text-neutral-500">Horizontal</div>
 								<select
 									aria-label="Padding horizontal"
@@ -285,7 +304,7 @@ export function SpacingSection({
 									))}
 								</select>
 							</div>
-							<div className="space-y-1.5">
+							<div className={fieldGapClassName}>
 								<div className="text-[11px] font-medium text-neutral-500">Vertical</div>
 								<select
 									aria-label="Padding vertical"
@@ -310,8 +329,8 @@ export function SpacingSection({
 							</div>
 						</div>
 					) : paddingMode === "sides" && panelMode === "advanced" ? (
-						<div className="rounded-md border border-neutral-200 bg-neutral-50 p-3">
-							<div className="grid grid-cols-3 gap-2">
+						<div className={sidePaddingCardClassName}>
+							<div className={sideGridClassName}>
 								<div />
 								<div className="space-y-1">
 									<div className="text-[11px] font-medium text-neutral-500">Top</div>
@@ -370,9 +389,7 @@ export function SpacingSection({
 										))}
 									</select>
 								</div>
-								<div className="flex items-center justify-center rounded-md border border-dashed border-neutral-200 bg-white px-2 text-[11px] text-neutral-400">
-									Padding
-								</div>
+								<div className={centerLabelClassName}>Padding</div>
 								<div className="space-y-1">
 									<div className="text-[11px] font-medium text-neutral-500">Right</div>
 									<select

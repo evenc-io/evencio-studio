@@ -4,9 +4,10 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 import { CollapsibleSection } from "@/routes/-snippets/editor/components/collapsible-section"
 import { RADIUS_SCALE } from "../constants"
-import type { ScheduleApplyFn, StylesPanelExpandedState } from "../types"
+import type { ScheduleApplyFn, StylesPanelDensity, StylesPanelExpandedState } from "../types"
 import { ensureOption, parseOptionalNumber } from "../utils"
 
 type RadiusSectionProps = {
@@ -15,6 +16,7 @@ type RadiusSectionProps = {
 	show: boolean
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	radiusMode: "scale" | "custom"
 	setRadiusMode: Dispatch<SetStateAction<"scale" | "custom">>
 	radiusScale: string
@@ -32,6 +34,7 @@ export function RadiusSection({
 	show,
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	radiusMode,
 	setRadiusMode,
 	radiusScale,
@@ -42,19 +45,35 @@ export function RadiusSection({
 	focusedFieldRef,
 	scheduleApply,
 }: RadiusSectionProps) {
+	const isCompact = density === "compact"
+	const stackClassName = cn("space-y-3", isCompact && "space-y-2")
+	const fieldStackClassName = cn("space-y-2", isCompact && "space-y-1.5")
+	const labelClassName = cn("text-xs text-neutral-600", isCompact && "text-[11px]")
+	const tabsListClassName = cn("w-full", isCompact && "h-8")
+	const tabsTriggerClassName = cn(isCompact && "px-2 py-0.5 text-[11px]")
+	const iconButtonClassName = cn(
+		"h-7 w-7 text-neutral-400 hover:text-neutral-700",
+		isCompact && "h-6 w-6",
+	)
+	const iconClassName = cn("h-4 w-4", isCompact && "h-3.5 w-3.5")
+	const inputClassName = cn(isCompact && "h-8 px-2 text-[11px] md:text-[11px]")
+	const addButtonClassName = cn(
+		"justify-start px-0 text-neutral-500 hover:text-neutral-900",
+		isCompact && "h-7 text-[11px]",
+	)
 	return (
 		<div data-testid="snippet-styles-section-radius">
 			<CollapsibleSection title="Radius" open={open} onOpenChange={onOpenChange}>
-				<div className="space-y-3">
+				<div className={stackClassName}>
 					{show ? (
-						<div className="space-y-2">
+						<div className={fieldStackClassName}>
 							<div className="flex items-center justify-between gap-2">
-								<Label className="text-xs text-neutral-600">Radius</Label>
+								<Label className={labelClassName}>Radius</Label>
 								<Button
 									type="button"
 									variant="ghost"
 									size="icon"
-									className="h-7 w-7 text-neutral-400 hover:text-neutral-700"
+									className={iconButtonClassName}
 									onClick={() => {
 										setExpanded((prev) => ({ ...prev, borderRadius: false }))
 										onOpenChange(false)
@@ -64,16 +83,20 @@ export function RadiusSection({
 									aria-label="Remove radius"
 									title="Remove"
 								>
-									<Trash2 className="h-4 w-4" />
+									<Trash2 className={iconClassName} />
 								</Button>
 							</div>
 							<Tabs
 								value={radiusMode}
 								onValueChange={(next) => setRadiusMode(next === "custom" ? "custom" : "scale")}
 							>
-								<TabsList className="w-full">
-									<TabsTrigger value="scale">Scale</TabsTrigger>
-									<TabsTrigger value="custom">Custom</TabsTrigger>
+								<TabsList className={tabsListClassName}>
+									<TabsTrigger className={tabsTriggerClassName} value="scale">
+										Scale
+									</TabsTrigger>
+									<TabsTrigger className={tabsTriggerClassName} value="custom">
+										Custom
+									</TabsTrigger>
 								</TabsList>
 								<TabsContent value="scale">
 									<select
@@ -133,6 +156,7 @@ export function RadiusSection({
 										}}
 										placeholder="12"
 										disabled={!canApply}
+										className={inputClassName}
 										aria-invalid={
 											radiusCustom.trim().length > 0 &&
 											parseOptionalNumber(radiusCustom) === "invalid"
@@ -148,11 +172,11 @@ export function RadiusSection({
 							type="button"
 							variant="ghost"
 							size="sm"
-							className="justify-start px-0 text-neutral-500 hover:text-neutral-900"
+							className={addButtonClassName}
 							onClick={() => setExpanded((prev) => ({ ...prev, borderRadius: true }))}
 							disabled={!canApply}
 						>
-							<Plus className="mr-2 h-4 w-4" />
+							<Plus className={cn("mr-2 h-4 w-4", isCompact && "h-3.5 w-3.5")} />
 							Add radius
 						</Button>
 					)}

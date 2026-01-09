@@ -1,11 +1,13 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react"
 import { Label } from "@/components/ui/label"
+import { cn } from "@/lib/utils"
 import { FONT_FAMILY_OPTIONS } from "../../constants"
-import type { ScheduleApplyFn } from "../../types"
+import type { ScheduleApplyFn, StylesPanelDensity } from "../../types"
 
 type FontFamilyFieldProps = {
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	fontFamily: string
 	setFontFamily: Dispatch<SetStateAction<string>>
 	focusedFieldRef: MutableRefObject<string | null>
@@ -15,14 +17,19 @@ type FontFamilyFieldProps = {
 export function FontFamilyField({
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	fontFamily,
 	setFontFamily,
 	focusedFieldRef,
 	scheduleApply,
 }: FontFamilyFieldProps) {
+	const isCompact = density === "compact"
+	const stackClassName = cn("space-y-2", isCompact && "space-y-1.5")
+	const labelClassName = cn("text-xs text-neutral-600", isCompact && "text-[11px]")
+
 	return (
-		<div className="space-y-2">
-			<Label className="text-xs text-neutral-600">Font family</Label>
+		<div className={stackClassName}>
+			<Label className={labelClassName}>Font family</Label>
 			<select
 				aria-label="Font family"
 				value={fontFamily}

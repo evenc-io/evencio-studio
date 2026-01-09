@@ -3,6 +3,8 @@ import type { SnippetInspectTextRequest } from "@/routes/-snippets/editor/snippe
 
 export type StyleUpdatePayload = Omit<StyleUpdateRequest, "source" | "line" | "column">
 
+export type StylesPanelDensity = "default" | "compact"
+
 export type ColorDraft = {
 	mode: "token" | "custom"
 	token: string
@@ -39,6 +41,7 @@ export interface SnippetStylesPanelProps {
 	state: import("@/lib/engine/protocol").StyleReadResponse | null
 	isReading?: boolean
 	isApplying?: boolean
+	density?: StylesPanelDensity
 	onClose: () => void
 	onApply: (payload: StyleUpdatePayload, label: string, target: SnippetInspectTextRequest) => void
 }
