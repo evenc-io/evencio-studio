@@ -12,6 +12,7 @@ type SegmentedControlProps<TValue extends string> = {
 	options: Array<SegmentedControlOption<TValue>>
 	disabled?: boolean
 	className?: string
+	size?: "default" | "compact"
 }
 
 export function SegmentedControl<TValue extends string>({
@@ -21,7 +22,10 @@ export function SegmentedControl<TValue extends string>({
 	options,
 	disabled = false,
 	className,
+	size = "default",
 }: SegmentedControlProps<TValue>) {
+	const isCompact = size === "compact"
+
 	return (
 		<fieldset
 			aria-label={ariaLabel}
@@ -43,6 +47,7 @@ export function SegmentedControl<TValue extends string>({
 						disabled={disabled}
 						className={cn(
 							"rounded px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition-colors",
+							isCompact && "px-2 py-0.5 text-[10px]",
 							isActive ? "bg-white text-neutral-900" : "text-neutral-500 hover:text-neutral-900",
 							"disabled:pointer-events-none",
 						)}

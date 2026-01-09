@@ -4,14 +4,16 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 import { FONT_WEIGHT_SCALE } from "../../constants"
-import type { ScheduleApplyFn, StylesPanelExpandedState } from "../../types"
+import type { ScheduleApplyFn, StylesPanelDensity, StylesPanelExpandedState } from "../../types"
 import { ensureOption, parseOptionalNumber } from "../../utils"
 
 type FontWeightFieldProps = {
 	show: boolean
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	fontWeightMode: "scale" | "custom"
 	setFontWeightMode: Dispatch<SetStateAction<"scale" | "custom">>
 	fontWeightScale: string
@@ -27,6 +29,7 @@ export function FontWeightField({
 	show,
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	fontWeightMode,
 	setFontWeightMode,
 	fontWeightScale,
@@ -37,31 +40,47 @@ export function FontWeightField({
 	focusedFieldRef,
 	scheduleApply,
 }: FontWeightFieldProps) {
+	const isCompact = density === "compact"
+	const stackClassName = cn("space-y-2", isCompact && "space-y-1.5")
+	const labelClassName = cn("text-xs text-neutral-600", isCompact && "text-[11px]")
+	const tabsListClassName = cn("w-full", isCompact && "h-8")
+	const tabsTriggerClassName = cn(isCompact && "px-2 py-0.5 text-[11px]")
+	const iconButtonClassName = cn(
+		"h-7 w-7 text-neutral-400 hover:text-neutral-700",
+		isCompact && "h-6 w-6",
+	)
+	const iconClassName = cn("h-4 w-4", isCompact && "h-3.5 w-3.5")
+	const inputClassName = cn(isCompact && "h-8 px-2 text-[11px] md:text-[11px]")
+	const addButtonClassName = cn(
+		"justify-start px-0 text-neutral-500 hover:text-neutral-900",
+		isCompact && "h-7 text-[11px]",
+	)
+
 	if (!show) {
 		return (
 			<Button
 				type="button"
 				variant="ghost"
 				size="sm"
-				className="justify-start px-0 text-neutral-500 hover:text-neutral-900"
+				className={addButtonClassName}
 				onClick={() => setExpanded((prev) => ({ ...prev, fontWeight: true }))}
 				disabled={!canApply}
 			>
-				<Plus className="mr-2 h-4 w-4" />
+				<Plus className={cn("mr-2 h-4 w-4", isCompact && "h-3.5 w-3.5")} />
 				Add font weight
 			</Button>
 		)
 	}
 
 	return (
-		<div className="space-y-2">
+		<div className={stackClassName}>
 			<div className="flex items-center justify-between gap-2">
-				<Label className="text-xs text-neutral-600">Font weight</Label>
+				<Label className={labelClassName}>Font weight</Label>
 				<Button
 					type="button"
 					variant="ghost"
 					size="icon"
-					className="h-7 w-7 text-neutral-400 hover:text-neutral-700"
+					className={iconButtonClassName}
 					onClick={() => {
 						setExpanded((prev) => ({ ...prev, fontWeight: false }))
 						scheduleApply({ fontWeight: null }, "Remove font weight", { immediate: true })
@@ -70,16 +89,20 @@ export function FontWeightField({
 					aria-label="Remove font weight"
 					title="Remove"
 				>
-					<Trash2 className="h-4 w-4" />
+					<Trash2 className={iconClassName} />
 				</Button>
 			</div>
 			<Tabs
 				value={fontWeightMode}
 				onValueChange={(next) => setFontWeightMode(next === "custom" ? "custom" : "scale")}
 			>
-				<TabsList className="w-full">
-					<TabsTrigger value="scale">Scale</TabsTrigger>
-					<TabsTrigger value="custom">Custom</TabsTrigger>
+				<TabsList className={tabsListClassName}>
+					<TabsTrigger className={tabsTriggerClassName} value="scale">
+						Scale
+					</TabsTrigger>
+					<TabsTrigger className={tabsTriggerClassName} value="custom">
+						Custom
+					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="scale">
 					<select
@@ -138,6 +161,7 @@ export function FontWeightField({
 						}}
 						placeholder="600"
 						disabled={!canApply}
+						className={inputClassName}
 						aria-invalid={
 							fontWeightCustom.trim().length > 0 &&
 							parseOptionalNumber(fontWeightCustom) === "invalid"

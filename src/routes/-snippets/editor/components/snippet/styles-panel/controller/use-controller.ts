@@ -21,15 +21,20 @@ const getTargetKey = (target: SnippetInspectTextRequest | null) => {
 	return `${target.fileId}:${target.line}:${target.column}`
 }
 
-type ControllerArgs = Pick<SnippetStylesPanelProps, "open" | "target" | "state" | "onApply">
+type ControllerArgs = Pick<
+	SnippetStylesPanelProps,
+	"open" | "target" | "state" | "onApply" | "density"
+>
 
 export const useSnippetStylesPanelController = ({
 	open,
 	target,
 	state,
 	onApply,
+	density = "default",
 }: ControllerArgs): SnippetStylesPanelController => {
 	const focusedFieldRef = useRef<string | null>(null)
+	const isCompact = density === "compact"
 
 	const tagName = target?.elementName ?? null
 	const isIntrinsic = isSnippetIntrinsicTag(tagName)
@@ -204,9 +209,10 @@ export const useSnippetStylesPanelController = ({
 	})
 
 	const baseSelectClassName = cn(
-		"h-9 w-full rounded-md border border-neutral-200 bg-white px-3 text-sm text-neutral-900",
+		"w-full rounded-md border border-neutral-200 bg-white text-neutral-900",
 		"focus:border-neutral-900 focus:outline-none",
 		"disabled:cursor-not-allowed disabled:opacity-50",
+		isCompact ? "h-8 px-2 text-[11px]" : "h-9 px-3 text-sm",
 	)
 
 	return {

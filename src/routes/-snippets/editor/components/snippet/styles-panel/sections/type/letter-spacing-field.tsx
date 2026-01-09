@@ -2,13 +2,15 @@ import type { Dispatch, MutableRefObject, SetStateAction } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 import { LETTER_SPACING_SCALE } from "../../constants"
-import type { ScheduleApplyFn } from "../../types"
+import type { ScheduleApplyFn, StylesPanelDensity } from "../../types"
 import { ensureOption } from "../../utils"
 
 type LetterSpacingFieldProps = {
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	letterSpacingMode: "scale" | "custom"
 	setLetterSpacingMode: Dispatch<SetStateAction<"scale" | "custom">>
 	letterSpacingScale: string
@@ -22,6 +24,7 @@ type LetterSpacingFieldProps = {
 export function LetterSpacingField({
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	letterSpacingMode,
 	setLetterSpacingMode,
 	letterSpacingScale,
@@ -31,16 +34,27 @@ export function LetterSpacingField({
 	focusedFieldRef,
 	scheduleApply,
 }: LetterSpacingFieldProps) {
+	const isCompact = density === "compact"
+	const stackClassName = cn("space-y-2", isCompact && "space-y-1.5")
+	const labelClassName = cn("text-xs text-neutral-600", isCompact && "text-[11px]")
+	const tabsListClassName = cn("w-full", isCompact && "h-8")
+	const tabsTriggerClassName = cn(isCompact && "px-2 py-0.5 text-[11px]")
+	const inputClassName = cn(isCompact && "h-8 px-2 text-[11px] md:text-[11px]")
+
 	return (
-		<div className="space-y-2">
-			<Label className="text-xs text-neutral-600">Letter spacing</Label>
+		<div className={stackClassName}>
+			<Label className={labelClassName}>Letter spacing</Label>
 			<Tabs
 				value={letterSpacingMode}
 				onValueChange={(next) => setLetterSpacingMode(next === "custom" ? "custom" : "scale")}
 			>
-				<TabsList className="w-full">
-					<TabsTrigger value="scale">Scale</TabsTrigger>
-					<TabsTrigger value="custom">Custom</TabsTrigger>
+				<TabsList className={tabsListClassName}>
+					<TabsTrigger className={tabsTriggerClassName} value="scale">
+						Scale
+					</TabsTrigger>
+					<TabsTrigger className={tabsTriggerClassName} value="custom">
+						Custom
+					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="scale">
 					<select
@@ -104,6 +118,7 @@ export function LetterSpacingField({
 						}}
 						placeholder="-0.02em"
 						disabled={!canApply}
+						className={inputClassName}
 					/>
 				</TabsContent>
 			</Tabs>

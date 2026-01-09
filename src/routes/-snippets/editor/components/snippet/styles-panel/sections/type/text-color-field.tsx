@@ -4,14 +4,21 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { cn } from "@/lib/utils"
 import { TailwindColorPicker } from "../../tailwind-color-picker"
-import type { ColorDraft, ScheduleApplyFn, StylesPanelExpandedState } from "../../types"
+import type {
+	ColorDraft,
+	ScheduleApplyFn,
+	StylesPanelDensity,
+	StylesPanelExpandedState,
+} from "../../types"
 import { normalizeHexColor } from "../../utils"
 
 type TextColorFieldProps = {
 	show: boolean
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	textColorDraft: ColorDraft
 	setTextColorDraft: Dispatch<SetStateAction<ColorDraft>>
 	setExpanded: Dispatch<SetStateAction<StylesPanelExpandedState>>
@@ -23,37 +30,58 @@ export function TextColorField({
 	show,
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	textColorDraft,
 	setTextColorDraft,
 	setExpanded,
 	focusedFieldRef,
 	scheduleApply,
 }: TextColorFieldProps) {
+	const isCompact = density === "compact"
+	const stackClassName = cn("space-y-2", isCompact && "space-y-1.5")
+	const labelClassName = cn("text-xs text-neutral-600", isCompact && "text-[11px]")
+	const tabsListClassName = cn("w-full", isCompact && "h-8")
+	const tabsTriggerClassName = cn(isCompact && "px-2 py-0.5 text-[11px]")
+	const iconButtonClassName = cn(
+		"h-7 w-7 text-neutral-400 hover:text-neutral-700",
+		isCompact && "h-6 w-6",
+	)
+	const iconClassName = cn("h-4 w-4", isCompact && "h-3.5 w-3.5")
+	const inputClassName = cn(isCompact && "h-8 px-2 text-[11px] md:text-[11px]")
+	const swatchInputClassName = cn(
+		"h-9 w-9 rounded-md border border-neutral-200 bg-white p-1",
+		isCompact && "h-8 w-8",
+	)
+	const addButtonClassName = cn(
+		"justify-start px-0 text-neutral-500 hover:text-neutral-900",
+		isCompact && "h-7 text-[11px]",
+	)
+
 	if (!show) {
 		return (
 			<Button
 				type="button"
 				variant="ghost"
 				size="sm"
-				className="justify-start px-0 text-neutral-500 hover:text-neutral-900"
+				className={addButtonClassName}
 				onClick={() => setExpanded((prev) => ({ ...prev, textColor: true }))}
 				disabled={!canApply}
 			>
-				<Plus className="mr-2 h-4 w-4" />
+				<Plus className={cn("mr-2 h-4 w-4", isCompact && "h-3.5 w-3.5")} />
 				Add text color
 			</Button>
 		)
 	}
 
 	return (
-		<div className="space-y-2">
+		<div className={stackClassName}>
 			<div className="flex items-center justify-between gap-2">
-				<Label className="text-xs text-neutral-600">Text color</Label>
+				<Label className={labelClassName}>Text color</Label>
 				<Button
 					type="button"
 					variant="ghost"
 					size="icon"
-					className="h-7 w-7 text-neutral-400 hover:text-neutral-700"
+					className={iconButtonClassName}
 					onClick={() => {
 						setExpanded((prev) => ({ ...prev, textColor: false }))
 						scheduleApply({ textColor: null }, "Remove text color", { immediate: true })
@@ -62,7 +90,7 @@ export function TextColorField({
 					aria-label="Remove text color"
 					title="Remove"
 				>
-					<Trash2 className="h-4 w-4" />
+					<Trash2 className={iconClassName} />
 				</Button>
 			</div>
 			<Tabs
@@ -74,9 +102,13 @@ export function TextColorField({
 					}))
 				}
 			>
-				<TabsList className="w-full">
-					<TabsTrigger value="token">Token</TabsTrigger>
-					<TabsTrigger value="custom">Custom</TabsTrigger>
+				<TabsList className={tabsListClassName}>
+					<TabsTrigger className={tabsTriggerClassName} value="token">
+						Token
+					</TabsTrigger>
+					<TabsTrigger className={tabsTriggerClassName} value="custom">
+						Custom
+					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="token">
 					<TailwindColorPicker
@@ -121,7 +153,7 @@ export function TextColorField({
 									focusedFieldRef.current = null
 								}
 							}}
-							className="h-9 w-9 rounded-md border border-neutral-200 bg-white p-1"
+							className={swatchInputClassName}
 							disabled={!canApply}
 							aria-label="Pick text color"
 						/>
@@ -152,6 +184,7 @@ export function TextColorField({
 							}}
 							placeholder="#111111"
 							disabled={!canApply}
+							className={inputClassName}
 							aria-invalid={
 								textColorDraft.hex.trim().length > 0 &&
 								normalizeHexColor(textColorDraft.hex) === null

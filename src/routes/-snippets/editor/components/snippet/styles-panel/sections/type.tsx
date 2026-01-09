@@ -1,6 +1,11 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from "react"
 import { CollapsibleSection } from "@/routes/-snippets/editor/components/collapsible-section"
-import type { ColorDraft, ScheduleApplyFn, StylesPanelExpandedState } from "../types"
+import type {
+	ColorDraft,
+	ScheduleApplyFn,
+	StylesPanelDensity,
+	StylesPanelExpandedState,
+} from "../types"
 import { FontFamilyField } from "./type/font-family-field"
 import { FontSizeField } from "./type/font-size-field"
 import { FontWeightField } from "./type/font-weight-field"
@@ -15,6 +20,7 @@ type TypeSectionProps = {
 	panelMode: "basic" | "advanced"
 	canApply: boolean
 	baseSelectClassName: string
+	density?: StylesPanelDensity
 	fontFamily: string
 	setFontFamily: Dispatch<SetStateAction<string>>
 	showTextColor: boolean
@@ -65,6 +71,7 @@ export function TypeSection({
 	panelMode,
 	canApply,
 	baseSelectClassName,
+	density = "default",
 	fontFamily,
 	setFontFamily,
 	showTextColor,
@@ -109,19 +116,27 @@ export function TypeSection({
 	scheduleApply,
 }: TypeSectionProps) {
 	const showAdvanced = panelMode === "advanced"
+	const isCompact = density === "compact"
+	const sectionStackClassName = isCompact ? "space-y-3" : "space-y-4"
+	const cardClassName = isCompact
+		? "rounded-md border border-neutral-200 bg-neutral-50 px-2.5 py-2"
+		: "rounded-md border border-neutral-200 bg-neutral-50 px-3 py-3"
+	const innerStackClassName = isCompact ? "mt-2 space-y-2" : "mt-3 space-y-3"
+	const sectionLabelClassName = isCompact
+		? "text-[10px] font-semibold uppercase tracking-widest text-neutral-400"
+		: "text-[11px] font-semibold uppercase tracking-widest text-neutral-400"
 
 	return (
 		<div data-testid="snippet-styles-section-type">
 			<CollapsibleSection title="Type" open={open} onOpenChange={onOpenChange}>
-				<div className="space-y-4">
-					<div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-3">
-						<p className="text-[11px] font-semibold uppercase tracking-widest text-neutral-400">
-							Font
-						</p>
-						<div className="mt-3 space-y-3">
+				<div className={sectionStackClassName}>
+					<div className={cardClassName}>
+						<p className={sectionLabelClassName}>Font</p>
+						<div className={innerStackClassName}>
 							<FontFamilyField
 								canApply={canApply}
 								baseSelectClassName={baseSelectClassName}
+								density={density}
 								fontFamily={fontFamily}
 								setFontFamily={setFontFamily}
 								focusedFieldRef={focusedFieldRef}
@@ -132,6 +147,7 @@ export function TypeSection({
 								show={showFontSize}
 								canApply={canApply}
 								baseSelectClassName={baseSelectClassName}
+								density={density}
 								fontSizeMode={fontSizeMode}
 								setFontSizeMode={setFontSizeMode}
 								fontSizeScale={fontSizeScale}
@@ -147,6 +163,7 @@ export function TypeSection({
 								show={showFontWeight}
 								canApply={canApply}
 								baseSelectClassName={baseSelectClassName}
+								density={density}
 								fontWeightMode={fontWeightMode}
 								setFontWeightMode={setFontWeightMode}
 								fontWeightScale={fontWeightScale}
@@ -160,15 +177,14 @@ export function TypeSection({
 						</div>
 					</div>
 
-					<div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-3">
-						<p className="text-[11px] font-semibold uppercase tracking-widest text-neutral-400">
-							Text
-						</p>
-						<div className="mt-3 space-y-3">
+					<div className={cardClassName}>
+						<p className={sectionLabelClassName}>Text</p>
+						<div className={innerStackClassName}>
 							<TextColorField
 								show={showTextColor}
 								canApply={canApply}
 								baseSelectClassName={baseSelectClassName}
+								density={density}
 								textColorDraft={textColorDraft}
 								setTextColorDraft={setTextColorDraft}
 								setExpanded={setExpanded}
@@ -180,6 +196,7 @@ export function TypeSection({
 								panelMode={panelMode}
 								canApply={canApply}
 								baseSelectClassName={baseSelectClassName}
+								density={density}
 								textAlign={textAlign}
 								setTextAlign={setTextAlign}
 								textTransform={textTransform}
@@ -195,14 +212,13 @@ export function TypeSection({
 					</div>
 
 					{showAdvanced ? (
-						<div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-3">
-							<p className="text-[11px] font-semibold uppercase tracking-widest text-neutral-400">
-								Rhythm
-							</p>
-							<div className="mt-3 space-y-3">
+						<div className={cardClassName}>
+							<p className={sectionLabelClassName}>Rhythm</p>
+							<div className={innerStackClassName}>
 								<LineHeightField
 									canApply={canApply}
 									baseSelectClassName={baseSelectClassName}
+									density={density}
 									lineHeightMode={lineHeightMode}
 									setLineHeightMode={setLineHeightMode}
 									lineHeightScale={lineHeightScale}
@@ -216,6 +232,7 @@ export function TypeSection({
 								<LetterSpacingField
 									canApply={canApply}
 									baseSelectClassName={baseSelectClassName}
+									density={density}
 									letterSpacingMode={letterSpacingMode}
 									setLetterSpacingMode={setLetterSpacingMode}
 									letterSpacingScale={letterSpacingScale}
