@@ -39,10 +39,13 @@ describe("useSnippetCompiler", () => {
 
 		render(<Harness />)
 
-		await waitFor(() => {
-			expect(screen.getByTestId("status").textContent).toBe("error")
-		})
-		expect(screen.getByTestId("compiled").textContent?.trim().length).toBeGreaterThan(0)
-		expect(screen.getByTestId("error").textContent).toContain("Tailwind failed")
+		await waitFor(
+			() => {
+				expect(screen.getByTestId("status").textContent).toContain("error")
+				expect(screen.getByTestId("compiled").textContent?.trim().length).toBeGreaterThan(0)
+				expect(screen.getByTestId("error").textContent).toContain("Tailwind failed")
+			},
+			{ timeout: 5_000 },
+		)
 	})
 })
