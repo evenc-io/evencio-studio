@@ -25,7 +25,7 @@ if (Object.hasOwn(globalThis.setTimeout, "clock")) {
 	}
 }
 
-const [{ cleanup, configure }, matchers] = await Promise.all([
+const [{ act, cleanup, configure }, matchers] = await Promise.all([
 	import("@testing-library/react"),
 	import("@testing-library/jest-dom/matchers"),
 ])
@@ -48,8 +48,10 @@ const drainMicrotasks = async (): Promise<void> => {
 configure({
 	asyncWrapper: async (cb) => {
 		const result = await cb()
-		await drainMicrotasks()
-		await drainMicrotasks()
+		await act(async () => {
+			await drainMicrotasks()
+			await drainMicrotasks()
+		})
 		return result
 	},
 })
